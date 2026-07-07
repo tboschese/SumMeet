@@ -1,0 +1,56 @@
+// SQLite constraints (see SPEC §8): no native enums (status is a String, values
+// enforced by the MeetingStatus Zod enum) and no Json type (JSON blobs stored as
+// String/TEXT, parsed + Zod-validated on read). No @db.Text — SQLite String is TEXT.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  meetings  Meeting[]
+  createdAt DateTime  @default(now())
+}
+
+model Meeting {
+  id          String      @id @default(cuid())
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  title       String
+  status      String      @default("UPLOADED") // MeetingStatus (Zod enum, §8.1)
+  audioKey    String? // storage key, e.g. "{id}.webm"
+  durationSec Int?
+  language    String?
+  error       String? // failure reason when status = FAILED
+  transcript  Transcript?
+  insights    Insights?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Transcript {
+  id        String   @id @default(cuid())
+  meetingId String   @unique
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  fullText  String
+  segments  String // JSON: [{ start, end, text }]  (+ speaker later)
+  provider  String // e.g. "groq:whisper-large-v3-turbo"
+  createdAt DateTime @default(now())
+}
+
+model Insights {
+  id        String   @id @default(cuid())
+  meetingId String   @unique
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  data      String // JSON conforming to MeetingInsightsSchema
+  rawOutput String? // raw LLM output for debugging
+  provider  String // e.g. "anthropic:claude-..."
+  createdAt DateTime @default(now())
+}

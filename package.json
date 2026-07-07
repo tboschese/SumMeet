@@ -1,0 +1,21 @@
+{
+  "name": "summeet",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"pnpm --filter @summeet/api dev\" \"pnpm --filter @summeet/web dev\"",
+    "build": "pnpm -r build",
+    "db:migrate": "pnpm --filter @summeet/api db:migrate",
+    "db:studio": "pnpm --filter @summeet/api db:studio",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2"
+  }
+}

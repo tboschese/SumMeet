@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# env
+.env
+.env.local
+
+# local data (SQLite db + audio recordings)
+/data/*
+!/data/.gitkeep
+
+# build output
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# logs
+*.log
+
+# OS
+.DS_Store
