@@ -79,6 +79,12 @@ export function retryMeeting(id: string): Promise<CreateResult> {
   );
 }
 
+export function deleteMeeting(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}`, { method: "DELETE" }).then(
+    json<{ ok: true }>,
+  );
+}
+
 export const PROCESSING_STATUSES: MeetingStatus[] = [
   "UPLOADED",
   "TRANSCRIBING",

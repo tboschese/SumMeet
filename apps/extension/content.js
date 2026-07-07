@@ -131,7 +131,7 @@
     if (m.type === "STARTED") {
       recording = true;
       startedAt = m.startedAt || Date.now();
-      setMessage("Recording — you can present or switch tabs freely.", "info");
+      setMessage(""); // the pulsing button + timer already signal "recording"
       render();
     } else if (m.type === "UPLOADED") {
       clearSafety();

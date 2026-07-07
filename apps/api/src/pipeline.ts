@@ -92,6 +92,16 @@ export async function runPipeline(
       where: { id: meetingId },
       data: { status: "COMPLETED", language: insights.language, error: null },
     });
+
+    // Discard the recording — the product is the insights + transcript, not the
+    // audio. Keeps nothing sensitive on disk once processing succeeds.
+    if (meeting.audioKey) {
+      await ctx.storage.delete(meeting.audioKey).catch(() => {});
+      await db.meeting.update({
+        where: { id: meetingId },
+        data: { audioKey: null },
+      });
+    }
     log?.(`pipeline ${meetingId}: COMPLETED`);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

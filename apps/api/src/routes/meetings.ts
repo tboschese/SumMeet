@@ -154,4 +154,24 @@ export function registerMeetingRoutes(
       return reply.send(createReadStream(filePath));
     },
   );
+
+  // Delete: remove the row (transcript/insights cascade) and the audio file.
+  app.delete<{ Params: { id: string } }>(
+    "/api/meetings/:id",
+    async (request, reply) => {
+      const meeting = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, audioKey: true },
+      });
+      if (!meeting) return reply.code(404).send({ error: "meeting not found" });
+
+      if (meeting.audioKey) {
+        await ctx.storage.delete(meeting.audioKey).catch(() => {
+          /* file may already be gone — deleting the row is what matters */
+        });
+      }
+      await db.meeting.delete({ where: { id: meeting.id } });
+      return { ok: true };
+    },
+  );
 }

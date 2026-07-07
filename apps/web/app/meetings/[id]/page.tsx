@@ -4,10 +4,11 @@
 // Action items / decisions link back to their transcript span via sourceQuote.
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MeetingInsights } from "@summeet/core/schemas";
 import {
+  deleteMeeting,
   getMeeting,
   isProcessing,
   retryMeeting,
@@ -36,6 +37,7 @@ function findSegmentIndex(
 
 export default function MeetingDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params.id;
   const [detail, setDetail] = useState<MeetingDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +109,18 @@ export default function MeetingDetailPage() {
     }
   }, [id, refresh]);
 
+  const onDelete = useCallback(async () => {
+    if (!window.confirm("Delete this meeting and its insights? This can't be undone.")) {
+      return;
+    }
+    try {
+      await deleteMeeting(id);
+      router.push("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed.");
+    }
+  }, [id, router]);
+
   if (error) {
     return (
       <Shell>
@@ -127,13 +141,22 @@ export default function MeetingDetailPage() {
 
   return (
     <Shell>
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">{meeting.title}</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          {new Date(meeting.createdAt).toLocaleString()}
-          {meeting.durationSec ? ` · ${Math.round(meeting.durationSec / 60)} min` : ""}
-          {meeting.language ? ` · ${meeting.language}` : ""}
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{meeting.title}</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            {new Date(meeting.createdAt).toLocaleString()}
+            {meeting.durationSec ? ` · ${Math.round(meeting.durationSec / 60)} min` : ""}
+            {meeting.language ? ` · ${meeting.language}` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+        >
+          Delete
+        </button>
       </header>
 
       {processing && (
