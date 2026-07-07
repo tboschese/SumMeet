@@ -52,15 +52,9 @@ recBtn.addEventListener("click", async () => {
   setTimeout(refreshRecState, 400);
 });
 
-document.getElementById("mic").addEventListener("click", async () => {
-  setStatus("Requesting microphone…");
-  try {
-    // Triggers the permission prompt for the extension origin. Once granted,
-    // the offscreen document (same origin) can use the mic without a prompt.
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    for (const t of stream.getTracks()) t.stop(); // we only needed the grant
-    setStatus("Microphone enabled ✓", "ok");
-  } catch {
-    setStatus("Microphone was denied. Click again and allow it.", "err");
-  }
+document.getElementById("mic").addEventListener("click", () => {
+  // Open the grant flow in a real tab. A popup closes the instant the browser
+  // permission prompt opens, which cancels the request ("denied") — a tab won't.
+  chrome.tabs.create({ url: chrome.runtime.getURL("permission.html") });
+  window.close();
 });
