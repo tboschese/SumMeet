@@ -43,6 +43,22 @@ pnpm dev                  # web on :3000, api on :8080
 | `pnpm transcribe <audio>` | Transcribe an audio file via Groq Whisper (prints text + segments) |
 | `pnpm extract <transcript.txt>` | Extract validated insights from a transcript via Groq Llama |
 
+## Testing capture (isolated recorder)
+
+The in-browser recorder (tab audio + mic, mixed) has a standalone harness at
+**http://localhost:3000/record-test** — no upload, no API. To verify capture:
+
+1. Open a Google Meet / Teams-web / Zoom-web call in another Chrome tab.
+2. On `/record-test`, click **Record**, pick the meeting tab, and tick
+   **“Share tab audio”** (if you forget, you'll be prompted — it's the #1 miss).
+3. Talk, let others talk, click **Stop**, then play back / download the `.webm`.
+4. You should hear **both** the other participants *and* your own voice. Try a
+   long run (30+ min, tab backgrounded) to confirm nothing drops.
+
+> Requires desktop Chrome or Edge. Tab-audio capture is cross-platform; whole
+> system/screen audio is not (why desktop apps are out of MVP scope — use the
+> web clients).
+
 ## Layout
 
 Monorepo (pnpm workspaces):
