@@ -12,7 +12,10 @@
     "db:migrate": "pnpm --filter @summeet/api db:migrate",
     "db:studio": "pnpm --filter @summeet/api db:studio",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "transcribe": "pnpm --filter @summeet/api exec tsx src/cli/transcribe.ts",
+    "extract": "pnpm --filter @summeet/api exec tsx src/cli/extract.ts",
+    "test:extraction": "pnpm --filter @summeet/api test:extraction"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

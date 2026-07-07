@@ -10,7 +10,10 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "db:studio": "dotenv -e ../../.env -- prisma studio",
-    "db:generate": "dotenv -e ../../.env -- prisma generate"
+    "db:generate": "dotenv -e ../../.env -- prisma generate",
+    "transcribe": "tsx src/cli/transcribe.ts",
+    "extract": "tsx src/cli/extract.ts",
+    "test:extraction": "tsx src/cli/test-extraction.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",

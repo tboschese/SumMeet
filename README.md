@@ -40,6 +40,8 @@ pnpm dev                  # web on :3000, api on :8080
 | `pnpm db:migrate` | Prisma migrate (dev) |
 | `pnpm db:studio` | Inspect the SQLite DB |
 | `pnpm typecheck` | Typecheck all packages |
+| `pnpm transcribe <audio>` | Transcribe an audio file via Groq Whisper (prints text + segments) |
+| `pnpm extract <transcript.txt>` | Extract validated insights from a transcript via Groq Llama |
 
 ## Layout
 
