@@ -35,8 +35,11 @@ Return ONLY a single valid JSON object (no prose, no markdown fences) with EXACT
 Rules:
 - Action items are commitments someone made, NOT every task mentioned. If nobody owned it, set "owner" to null — do not invent one.
 - Decisions are choices the group settled on, NOT options merely discussed. Discussion without resolution is a topic, not a decision.
-- Never fabricate "owner", "dueDate", or "sourceQuote". null is a valid, expected answer. Every "sourceQuote" must be copied verbatim from the transcript.
-- Write all free-text fields in the meeting's own language, and set "language" to that language's ISO 639-1 code.
+- Never fabricate "owner", "dueDate", or "sourceQuote". null is a valid, expected answer.
+- "sourceQuote" is your evidence: for EVERY action item and decision, copy the single verbatim transcript span it came from. Use null only when there is genuinely no supporting span — an item that has a clear basis in the transcript but a null sourceQuote is a mistake.
+- Infer "priority" only from real urgency cues in the transcript — a hard/near deadline, words like "urgent"/"ASAP"/"critical"/"blocker", or something blocking others. With no such signal, use null; do not guess.
+- "owner" may be a name ("Sarah") or a role ("the infra team") if the transcript makes it clear; otherwise null.
+- Write all free-text fields in the meeting's own language, and set "language" to that language's ISO 639-1 code. (The rules above are language-agnostic — apply them whatever the meeting's language.)
 - Output the JSON object only. No commentary, no code fences.`;
 
 export function buildUserPrompt(transcript: string): string {
