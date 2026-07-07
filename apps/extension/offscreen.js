@@ -61,6 +61,11 @@ async function start(streamId) {
     }
 
     activeStreams = [tab, mic];
+
+    // If the tab's audio ends (you left the call or closed the tab), stop and
+    // release the mic instead of leaving it live (the "mic stays on" issue).
+    tab.getAudioTracks()[0]?.addEventListener("ended", () => stop());
+
     audioCtx = new AudioContext();
     const dest = audioCtx.createMediaStreamDestination();
 

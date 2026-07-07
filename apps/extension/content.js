@@ -31,6 +31,7 @@
   let recording = false;
   let startedAt = 0;
   let ticker = null;
+  let safety = null; // resets the UI if no STARTED/UPLOADED/ERROR ever arrives
 
   // ── Position (draggable + persisted) ──────────────────────────────────────
   function applyPos(pos) {
@@ -84,6 +85,10 @@
     if (ticker) clearInterval(ticker);
     ticker = null;
   }
+  function clearSafety() {
+    if (safety) clearTimeout(safety);
+    safety = null;
+  }
   function render() {
     el.classList.toggle("recording", recording);
     label.textContent = recording ? "Stop" : "Record";
@@ -104,10 +109,19 @@
       if (!res?.ok) setMessage(res?.error || "Could not start recording.", "error");
       // "recording" flips when the offscreen doc confirms STARTED
     } else {
+      // Stop the visible timer immediately — don't wait for the round-trip.
+      stopTicker();
       btn.disabled = true;
       await chrome.runtime.sendMessage({ type: "STOP" });
       btn.disabled = false;
       setMessage("Uploading…", "info");
+      // Safety net: if no confirmation arrives, don't leave the UI stuck.
+      clearSafety();
+      safety = setTimeout(() => {
+        recording = false;
+        setMessage("No response — check the SumMeet app on localhost:3000.", "error");
+        render();
+      }, 60000);
     }
   });
 
@@ -120,10 +134,12 @@
       setMessage("Recording — you can present or switch tabs freely.", "info");
       render();
     } else if (m.type === "UPLOADED") {
+      clearSafety();
       recording = false;
       setMessage("Sent to SumMeet ✓ Processing there now.", "ok");
       render();
     } else if (m.type === "ERROR") {
+      clearSafety();
       recording = false;
       setMessage(m.error || "Something went wrong.", "error");
       render();
