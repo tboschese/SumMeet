@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import {
+  ACCEPTED_AUDIO_HINT,
+  isAcceptedAudio,
+  MAX_UPLOAD_BYTES,
+} from "@summeet/core/media";
 import { createMeeting } from "@/lib/api";
 import { formatElapsed, MeetingRecorder, RecorderError } from "@/lib/recorder";
 
@@ -72,7 +77,16 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       e.target.value = "";
-      if (file) void upload(file, file.name, file.name.replace(/\.[^.]+$/, ""));
+      if (!file) return;
+      if (!isAcceptedAudio(file.name, file.type)) {
+        setError(`Unsupported file type. Accepted: ${ACCEPTED_AUDIO_HINT}`);
+        return;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setError("File is too large (max 500 MB).");
+        return;
+      }
+      void upload(file, file.name, file.name.replace(/\.[^.]+$/, ""));
     },
     [upload],
   );

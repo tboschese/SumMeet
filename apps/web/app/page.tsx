@@ -95,6 +95,11 @@ export default function HomePage() {
           </ul>
         )}
       </section>
+
+      <footer className="mt-10 text-center text-xs text-neutral-400">
+        Recording may require consent. Announce that you&apos;re recording and
+        follow local laws and your organization&apos;s policy.
+      </footer>
     </main>
   );
 }

@@ -1,6 +1,11 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { parseInsights, parseSegments } from "@summeet/core";
+import {
+  ACCEPTED_AUDIO_HINT,
+  isAcceptedAudio,
+  parseInsights,
+  parseSegments,
+} from "@summeet/core";
 import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
 import { db } from "../db.js";
@@ -26,17 +31,33 @@ export function registerMeetingRoutes(
     let filename: string | undefined;
     let contentType = "audio/webm";
 
-    const parts = request.parts();
-    for await (const part of parts) {
-      if (part.type === "file" && part.fieldname === "audio") {
-        filename = part.filename;
-        if (part.mimetype) contentType = part.mimetype;
-        audio = await part.toBuffer();
-      } else if (part.type === "field" && part.fieldname === "title") {
-        title = String(part.value);
+    let tooLarge = false;
+    try {
+      const parts = request.parts();
+      for await (const part of parts) {
+        if (part.type === "file" && part.fieldname === "audio") {
+          filename = part.filename;
+          if (part.mimetype) contentType = part.mimetype;
+          // Reject wrong types before buffering the whole thing.
+          if (!isAcceptedAudio(part.filename ?? "", part.mimetype)) {
+            return reply.code(400).send({
+              error: `unsupported file type. Accepted: ${ACCEPTED_AUDIO_HINT}`,
+            });
+          }
+          audio = await part.toBuffer();
+          if (part.file.truncated) tooLarge = true;
+        } else if (part.type === "field" && part.fieldname === "title") {
+          title = String(part.value);
+        }
       }
+    } catch (err) {
+      request.log.error({ err }, "upload parse failed");
+      return reply.code(400).send({ error: "could not read the upload" });
     }
 
+    if (tooLarge) {
+      return reply.code(413).send({ error: "file too large" });
+    }
     if (!audio || audio.byteLength === 0) {
       return reply
         .code(400)

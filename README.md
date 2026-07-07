@@ -19,9 +19,22 @@ See [`SPEC.md`](./SPEC.md) for the full product & engineering spec and
 
 ```bash
 pnpm install
-cp .env.example .env      # then fill in GROQ_API_KEY / ANTHROPIC_API_KEY when needed
+cp .env.example .env      # then paste your GROQ_API_KEY
 pnpm db:migrate           # creates ./data/summeet.db
 ```
+
+### Environment
+
+One key does everything — this build uses **Groq for both transcription and
+extraction** (no Anthropic/Claude):
+
+| Var | Required | What |
+|---|---|---|
+| `GROQ_API_KEY` | ✅ | Groq key — Whisper transcription **and** Llama extraction |
+| `DATABASE_URL` | ✅ | SQLite path. Prisma resolves it relative to `apps/api/prisma/`, so the default `file:../../../data/summeet.db` lands at repo-root `./data/`. |
+| `DATA_DIR` | — | Where audio is stored (default `./data`) |
+| `NEXT_PUBLIC_API_BASE_URL` | — | API base for the web app (default `http://localhost:8080`) |
+| `MAX_TRANSCRIBE_BYTES` / `CHUNK_WINDOW_SEC` / `CHUNK_OVERLAP_SEC` | — | Audio chunking tuning |
 
 ## Run
 
@@ -58,6 +71,18 @@ The in-browser recorder (tab audio + mic, mixed) has a standalone harness at
 > Requires desktop Chrome or Edge. Tab-audio capture is cross-platform; whole
 > system/screen audio is not (why desktop apps are out of MVP scope — use the
 > web clients).
+
+## Troubleshooting
+
+- **`GROQ_API_KEY is not set`** — the server exits on boot without it. Paste a
+  real key into `.env` (not the `...` placeholder).
+- **`ffmpeg exited …` / job goes `Failed`** — ffmpeg isn't installed or the file
+  isn't decodable audio. `brew install ffmpeg`; the failure reason shows on the
+  meeting page with a **Retry** button.
+- **Recording won't start / "didn't share tab audio"** — in the Chrome picker,
+  choose the **meeting tab** and tick **Share tab audio**. Use desktop Chrome/Edge.
+- **Web can't reach the API** — make sure `pnpm dev` started both; the API is on
+  `:8080`. Override with `NEXT_PUBLIC_API_BASE_URL` if you moved it.
 
 ## Layout
 
