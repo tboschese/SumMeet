@@ -2,9 +2,11 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import {
   ACCEPTED_AUDIO_HINT,
+  extractInsights,
   isAcceptedAudio,
   parseInsights,
   parseSegments,
+  stringifyInsights,
 } from "@summeet/core";
 import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
@@ -152,6 +154,58 @@ export function registerMeetingRoutes(
       reply.header("Content-Length", info.size);
       reply.type("audio/webm");
       return reply.send(createReadStream(filePath));
+    },
+  );
+
+  // Rename: update the meeting title.
+  app.patch<{ Params: { id: string }; Body: { title?: string } }>(
+    "/api/meetings/:id",
+    async (request, reply) => {
+      const title = request.body?.title?.trim();
+      if (!title) return reply.code(400).send({ error: "title is required" });
+      const exists = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (!exists) return reply.code(404).send({ error: "meeting not found" });
+      await db.meeting.update({ where: { id: exists.id }, data: { title } });
+      return { ok: true };
+    },
+  );
+
+  // Re-extract: re-run extraction over the stored transcript (no re-recording,
+  // no re-transcription) — for iterating on the prompt during validation.
+  app.post<{ Params: { id: string } }>(
+    "/api/meetings/:id/reextract",
+    async (request, reply) => {
+      const meeting = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        include: { transcript: true },
+      });
+      if (!meeting) return reply.code(404).send({ error: "meeting not found" });
+      if (!meeting.transcript) {
+        return reply.code(400).send({ error: "no transcript to extract from" });
+      }
+      try {
+        const { insights, rawOutput, provider } = await extractInsights(
+          meeting.transcript.fullText,
+          ctx.llm,
+        );
+        const data = stringifyInsights(insights);
+        await db.insights.upsert({
+          where: { meetingId: meeting.id },
+          create: { meetingId: meeting.id, data, rawOutput, provider },
+          update: { data, rawOutput, provider },
+        });
+        await db.meeting.update({
+          where: { id: meeting.id },
+          data: { language: insights.language },
+        });
+        return { ok: true };
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return reply.code(500).send({ error: reason });
+      }
     },
   );
 

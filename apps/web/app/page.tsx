@@ -5,7 +5,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isProcessing, listMeetings, type MeetingListItem } from "@/lib/api";
+import {
+  deleteMeeting,
+  isProcessing,
+  listMeetings,
+  type MeetingListItem,
+} from "@/lib/api";
 import { RecordBar } from "./components/RecordBar";
 import { StatusBadge } from "./components/StatusBadge";
 
@@ -29,6 +34,19 @@ export default function HomePage() {
       setError(e instanceof Error ? e.message : "Could not reach the API.");
     }
   }, []);
+
+  const onDelete = useCallback(
+    async (id: string, title: string) => {
+      if (!window.confirm(`Delete “${title}”? This can't be undone.`)) return;
+      try {
+        await deleteMeeting(id);
+        void refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Delete failed.");
+      }
+    },
+    [refresh],
+  );
 
   // Poll every 3s while any meeting is still processing.
   useEffect(() => {
@@ -74,10 +92,10 @@ export default function HomePage() {
         ) : (
           <ul className="divide-y divide-neutral-100 overflow-hidden rounded-lg border border-neutral-200 bg-white">
             {meetings?.map((m) => (
-              <li key={m.id}>
+              <li key={m.id} className="flex items-center">
                 <Link
                   href={`/meetings/${m.id}`}
-                  className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-neutral-50"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-3 hover:bg-neutral-50"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-neutral-900">
@@ -90,6 +108,14 @@ export default function HomePage() {
                   </div>
                   <StatusBadge status={m.status} />
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => onDelete(m.id, m.title)}
+                  title="Delete meeting"
+                  className="px-3 py-3 text-neutral-300 hover:text-red-600"
+                >
+                  ✕
+                </button>
               </li>
             ))}
           </ul>

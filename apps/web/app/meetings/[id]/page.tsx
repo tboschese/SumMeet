@@ -11,6 +11,8 @@ import {
   deleteMeeting,
   getMeeting,
   isProcessing,
+  reextractMeeting,
+  renameMeeting,
   retryMeeting,
   type MeetingDetail,
 } from "@/lib/api";
@@ -33,6 +35,43 @@ function findSegmentIndex(
     }
   }
   return best;
+}
+
+const toolBtn =
+  "rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50 disabled:opacity-60";
+
+/** Render insights as portable Markdown for copy/paste into notes/docs. */
+function insightsToMarkdown(title: string, d: MeetingInsights): string {
+  const lines: string[] = [`# ${title}`, "", `**TL;DR** ${d.tldr}`, ""];
+  lines.push("## Executive summary", d.executiveSummary, "");
+  if (d.keyPoints.length) {
+    lines.push("## Key points", ...d.keyPoints.map((p) => `- ${p}`), "");
+  }
+  if (d.actionItems.length) {
+    lines.push("## Action items");
+    for (const a of d.actionItems) {
+      const meta = [
+        a.owner ? `owner: ${a.owner}` : null,
+        a.dueDate ? `due: ${a.dueDate}` : null,
+        a.priority ? `priority: ${a.priority}` : null,
+      ].filter(Boolean);
+      lines.push(`- [ ] ${a.task}${meta.length ? ` _(${meta.join(", ")})_` : ""}`);
+      if (a.sourceQuote) lines.push(`  > ${a.sourceQuote}`);
+    }
+    lines.push("");
+  }
+  if (d.decisions.length) {
+    lines.push("## Decisions");
+    for (const dec of d.decisions) {
+      lines.push(`- ${dec.decision}${dec.rationale ? ` — _${dec.rationale}_` : ""}`);
+      if (dec.sourceQuote) lines.push(`  > ${dec.sourceQuote}`);
+    }
+    lines.push("");
+  }
+  if (d.topics.length) {
+    lines.push("## Topics", ...d.topics.map((t) => `- **${t.title}**: ${t.summary}`), "");
+  }
+  return lines.join("\n").trim();
 }
 
 export default function MeetingDetailPage() {
@@ -121,6 +160,44 @@ export default function MeetingDetailPage() {
     }
   }, [id, router]);
 
+  const onRename = useCallback(async () => {
+    const next = window.prompt("Rename meeting", detail?.meeting.title ?? "");
+    if (next == null || !next.trim()) return;
+    try {
+      await renameMeeting(id, next.trim());
+      void refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Rename failed.");
+    }
+  }, [id, detail, refresh]);
+
+  const [reextracting, setReextracting] = useState(false);
+  const onReextract = useCallback(async () => {
+    setReextracting(true);
+    try {
+      await reextractMeeting(id);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Re-extract failed.");
+    } finally {
+      setReextracting(false);
+    }
+  }, [id, refresh]);
+
+  const [copied, setCopied] = useState(false);
+  const onCopy = useCallback(async () => {
+    if (!detail?.insights) return;
+    try {
+      await navigator.clipboard.writeText(
+        insightsToMarkdown(detail.meeting.title, detail.insights.data),
+      );
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Could not copy to clipboard.");
+    }
+  }, [detail]);
+
   if (error) {
     return (
       <Shell>
@@ -150,13 +227,33 @@ export default function MeetingDetailPage() {
             {meeting.language ? ` · ${meeting.language}` : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-        >
-          Delete
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={onRename} className={toolBtn}>
+            Rename
+          </button>
+          {insights && (
+            <>
+              <button type="button" onClick={onCopy} className={toolBtn}>
+                {copied ? "Copied ✓" : "Copy MD"}
+              </button>
+              <button
+                type="button"
+                onClick={onReextract}
+                disabled={reextracting}
+                className={toolBtn}
+              >
+                {reextracting ? "Re-extracting…" : "Re-extract"}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+          >
+            Delete
+          </button>
+        </div>
       </header>
 
       {processing && (

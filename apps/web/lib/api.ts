@@ -85,6 +85,20 @@ export function deleteMeeting(id: string): Promise<{ ok: true }> {
   );
 }
 
+export function renameMeeting(id: string, title: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  }).then(json<{ ok: true }>);
+}
+
+export function reextractMeeting(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}/reextract`, {
+    method: "POST",
+  }).then(json<{ ok: true }>);
+}
+
 export const PROCESSING_STATUSES: MeetingStatus[] = [
   "UPLOADED",
   "TRANSCRIBING",
