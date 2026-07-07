@@ -84,6 +84,13 @@ The in-browser recorder (tab audio + mic, mixed) has a standalone harness at
 - **Web can't reach the API** — make sure `pnpm dev` started both; the API is on
   `:8080`. Override with `NEXT_PUBLIC_API_BASE_URL` if you moved it.
 
+## Chrome extension (roadmap A2)
+
+A floating **Record** button right on the Meet/Teams/Zoom page — no separate
+SumMeet tab, no screen-share picker (uses `chrome.tabCapture`). It uploads to
+the same local API. See [`apps/extension/README.md`](apps/extension/README.md)
+to load it unpacked.
+
 ## Layout
 
 Monorepo (pnpm workspaces):
@@ -91,3 +98,4 @@ Monorepo (pnpm workspaces):
 - `packages/core` — shared Zod schemas (the Insight contract, source of truth).
 - `apps/api` — Fastify API + Prisma (SQLite) + in-process worker.
 - `apps/web` — Next.js (App Router) + Tailwind.
+- `apps/extension` — MV3 Chrome extension (plain JS, load unpacked).
