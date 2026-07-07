@@ -10,6 +10,16 @@ export const MeetingStatus = z.enum([
 ]);
 export type MeetingStatus = z.infer<typeof MeetingStatus>;
 
+// ── Transcript segments (stored as a JSON String; §8) ─────────────────────────
+export const TranscriptSegmentSchema = z.object({
+  start: z.number(), // seconds, absolute in the recording's timeline
+  end: z.number(),
+  text: z.string(),
+});
+export type TranscriptSegment = z.infer<typeof TranscriptSegmentSchema>;
+
+export const TranscriptSegmentsSchema = z.array(TranscriptSegmentSchema);
+
 // ── The Insight contract (§6) ─────────────────────────────────────────────────
 export const ActionItemSchema = z.object({
   task: z.string(), // the commitment, imperative voice

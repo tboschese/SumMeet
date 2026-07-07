@@ -2,11 +2,9 @@
 // a LocalWhisperProvider (faster-whisper, "private mode") drops in behind the
 // same interface later without touching the pipeline.
 
-export interface TranscriptSegment {
-  start: number; // seconds, absolute in the full recording's timeline
-  end: number; // seconds
-  text: string;
-}
+// TranscriptSegment's shape lives in schemas.ts (source of truth, §8).
+export type { TranscriptSegment } from "../schemas.js";
+import type { TranscriptSegment } from "../schemas.js";
 
 export interface TranscriptionResult {
   text: string;
