@@ -1,16 +1,40 @@
 #summeet-widget {
   position: fixed;
+  /* Default: top-right, clear of Meet/Teams/Zoom bottom control bars.
+     Draggable — the user can move it anywhere and the spot is remembered. */
+  top: 88px;
   right: 16px;
-  bottom: 16px;
   z-index: 2147483647; /* above meeting UI */
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+#summeet-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9999px;
+  background: rgba(17, 24, 39, 0.85);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+#summeet-grip {
+  color: #d1d5db;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px 0 6px;
+  cursor: grab;
+  user-select: none;
+}
+#summeet-grip:active {
+  cursor: grabbing;
 }
 
 #summeet-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 8px 14px;
   border: none;
   border-radius: 9999px;
   background: #dc2626;
@@ -18,7 +42,6 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 #summeet-btn:disabled {
   opacity: 0.6;
