@@ -13,7 +13,8 @@
     "db:generate": "dotenv -e ../../.env -- prisma generate",
     "transcribe": "tsx src/cli/transcribe.ts",
     "extract": "tsx src/cli/extract.ts",
-    "test:extraction": "tsx src/cli/test-extraction.ts"
+    "test:extraction": "tsx src/cli/test-extraction.ts",
+    "eval:engines": "tsx src/cli/eval-engines.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

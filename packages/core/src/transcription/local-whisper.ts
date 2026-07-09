@@ -79,6 +79,8 @@ export class LocalWhisperProvider implements TranscriptionProvider {
         "-np", // no progress prints
       ];
       if (opts.language) args.push("-l", opts.language);
+      // whisper.cpp conditions on an initial prompt — pins names/jargon.
+      if (opts.prompt) args.push("--prompt", opts.prompt);
       await run(this.binary, args);
 
       const raw = await readFile(`${outBase}.json`, "utf8");

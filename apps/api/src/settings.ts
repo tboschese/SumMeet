@@ -15,6 +15,7 @@ export async function getSettings(): Promise<Settings> {
     outputLanguage: row.outputLanguage,
     transcriptionEngine: row.transcriptionEngine as Settings["transcriptionEngine"],
     extractionEngine: row.extractionEngine as Settings["extractionEngine"],
+    glossary: row.glossary,
   };
 }
 
@@ -29,6 +30,7 @@ export async function saveSettings(next: Settings): Promise<Settings> {
     outputLanguage: row.outputLanguage,
     transcriptionEngine: row.transcriptionEngine as Settings["transcriptionEngine"],
     extractionEngine: row.extractionEngine as Settings["extractionEngine"],
+    glossary: row.glossary,
   };
 }
 
@@ -42,4 +44,10 @@ export function transcriptionHint(s: Settings): string | undefined {
 /** The extractor writes in the meeting's language unless one is forced. */
 export function outputLanguage(s: Settings): string | undefined {
   return s.outputLanguage === MATCH_MEETING ? undefined : s.outputLanguage;
+}
+
+/** Vocabulary hint for both stages; undefined when the user set none. */
+export function glossary(s: Settings): string | undefined {
+  const g = s.glossary?.trim();
+  return g ? g : undefined;
 }

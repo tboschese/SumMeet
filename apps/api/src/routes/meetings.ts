@@ -12,7 +12,7 @@ import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
 import { db } from "../db.js";
 import type { Queue } from "../queue.js";
-import { getSettings, outputLanguage } from "../settings.js";
+import { getSettings, glossary, outputLanguage } from "../settings.js";
 
 function defaultTitle(filename?: string): string {
   if (filename) {
@@ -193,7 +193,7 @@ export function registerMeetingRoutes(
         const { insights, rawOutput, provider } = await extractInsights(
           meeting.transcript.fullText,
           llm,
-          { outputLanguage: outputLanguage(settings) },
+          { outputLanguage: outputLanguage(settings), glossary: glossary(settings) },
         );
         const data = stringifyInsights(insights);
         await db.insights.upsert({

@@ -26,6 +26,8 @@ export const SettingsSchema = z.object({
   transcriptionEngine: EngineSchema,
   /** Which engine extracts the insights. Can differ from transcription. */
   extractionEngine: EngineSchema,
+  /** Names, products and jargon — biases transcription and extraction (SPEC A6). */
+  glossary: z.string().max(4000),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 

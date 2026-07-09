@@ -19,6 +19,7 @@ model Settings {
   outputLanguage        String   @default("match") // "match" or ISO 639-1
   transcriptionEngine   String   @default("cloud") // "cloud" (Groq) | "local" (whisper.cpp)
   extractionEngine      String   @default("cloud") // "cloud" (Groq) | "local" (Ollama)
+  glossary              String   @default("") // names/products/jargon; biases both stages
   updatedAt             DateTime @updatedAt
 }
 

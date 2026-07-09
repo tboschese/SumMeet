@@ -17,9 +17,25 @@ function languageRule(outputLanguage?: string): string {
   return `- Write ALL free-text fields in ${name} (${outputLanguage}), regardless of the language spoken in the meeting. Translate as needed, but keep every "sourceQuote" VERBATIM in the original spoken language. Set "language" to "${outputLanguage}".`;
 }
 
-/** Build the system prompt, honoring the configured insights language. */
-export function buildSystemPrompt(outputLanguage?: string): string {
-  return EXTRACTION_SYSTEM_PROMPT.replace(LANGUAGE_RULE_TOKEN, languageRule(outputLanguage));
+/**
+ * Domain vocabulary (people, products, jargon). Helps the model spell owners and
+ * products correctly instead of echoing a garbled transcript (SPEC A6).
+ */
+function glossaryRule(glossary?: string): string {
+  const terms = glossary?.trim();
+  if (!terms) return "";
+  return `\n\nKnown names and terms for this meeting (spell them exactly like this; the transcript may misspell them):\n${terms}\nStill never invent an owner who isn't in the transcript — correcting a spelling is allowed, inventing a person is not.`;
+}
+
+/** Build the system prompt, honoring the configured insights language + glossary. */
+export function buildSystemPrompt(
+  outputLanguage?: string,
+  glossary?: string,
+): string {
+  return (
+    EXTRACTION_SYSTEM_PROMPT.replace(LANGUAGE_RULE_TOKEN, languageRule(outputLanguage)) +
+    glossaryRule(glossary)
+  );
 }
 
 const LANGUAGE_RULE_TOKEN = "{{LANGUAGE_RULE}}";

@@ -9,7 +9,7 @@ import {
 } from "@summeet/core";
 import type { PipelineContext } from "./context.js";
 import { db } from "./db.js";
-import { getSettings, outputLanguage, transcriptionHint } from "./settings.js";
+import { getSettings, glossary, outputLanguage, transcriptionHint } from "./settings.js";
 
 /**
  * The worker pipeline (SPEC §7.3), fail-soft (CLAUDE.md hard rule #7): read
@@ -45,6 +45,7 @@ export async function runPipeline(
     log?.(`pipeline ${meetingId}: transcribing`);
     const transcript = await transcribeFile(audioPath, transcriber, {
       language: transcriptionHint(settings),
+      prompt: glossary(settings),
     });
 
     const durationSec =
@@ -76,7 +77,7 @@ export async function runPipeline(
     const { insights, rawOutput, provider } = await extractInsights(
       transcript.text,
       llm,
-      { outputLanguage: outputLanguage(settings) },
+      { outputLanguage: outputLanguage(settings), glossary: glossary(settings) },
     );
 
     await db.insights.upsert({

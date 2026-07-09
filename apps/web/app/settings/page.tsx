@@ -216,6 +216,31 @@ export default function SettingsPage() {
             </Field>
           </section>
 
+          {/* ── Glossary ────────────────────────────────────────────────── */}
+          <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Glossary</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">
+                People, product and jargon names. Whisper is conditioned on these
+                so it stops guessing at names, and the extractor spells them
+                right. The single biggest quality win for the local engine.
+              </p>
+            </div>
+            <textarea
+              rows={4}
+              className="w-full rounded-md border border-brand-light bg-white px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none"
+              placeholder={"Sarah, James, Priya, SumMeet, Kubernetes, ARR, Q3 roadmap"}
+              value={settings.glossary}
+              onBlur={(e) => update({ ...settings, glossary: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, glossary: e.target.value })
+              }
+            />
+            <p className="text-xs text-ink-soft/60">
+              Comma- or line-separated. Saved when you click away.
+            </p>
+          </section>
+
           <p className="text-xs text-ink-soft/60">
             {status === "saving" && "Saving…"}
             {status === "saved" && <span className="text-brand">Saved ✓</span>}

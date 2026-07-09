@@ -14,6 +14,12 @@ export interface TranscriptionResult {
 
 export interface TranscribeOptions {
   language?: string; // ISO 639-1 hint; omit to auto-detect
+  /**
+   * Vocabulary hint ("initial prompt"): people, product and domain terms.
+   * Whisper conditions on it, so names get spelled right instead of guessed —
+   * the cheapest quality win for small local models (SPEC A6).
+   */
+  prompt?: string;
 }
 
 export interface TranscriptionProvider {

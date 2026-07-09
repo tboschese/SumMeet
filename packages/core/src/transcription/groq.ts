@@ -43,6 +43,7 @@ export class GroqWhisperProvider implements TranscriptionProvider {
     form.append("response_format", "verbose_json");
     form.append("temperature", "0");
     if (opts.language) form.append("language", opts.language);
+    if (opts.prompt) form.append("prompt", opts.prompt); // vocabulary hint
 
     const res = await fetch(GROQ_URL, {
       method: "POST",

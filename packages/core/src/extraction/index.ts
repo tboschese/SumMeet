@@ -61,9 +61,9 @@ function tryParse(
 export async function extractInsights(
   transcript: string,
   provider: LlmProvider,
-  opts: { outputLanguage?: string } = {},
+  opts: { outputLanguage?: string; glossary?: string } = {},
 ): Promise<ExtractionResult> {
-  const system = buildSystemPrompt(opts.outputLanguage);
+  const system = buildSystemPrompt(opts.outputLanguage, opts.glossary);
 
   const first = await provider.complete(system, buildUserPrompt(transcript));
   const firstTry = tryParse(first);

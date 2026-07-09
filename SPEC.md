@@ -514,6 +514,26 @@ The original 8-phase plan, tightened and reordered. The MVP above = old Phases 0
 | **A5** | Custom summary output | User-defined shape of the insights: templates/presets, which sections appear, tone/length, custom fields | **New.** Today the Insight contract is fixed (§6). Let users say "I want decisions + owners only, in bullet form" or define a template per meeting type (1:1, standup, client call). Must stay Zod-validated: user config selects/extends the schema, it never becomes free-form model output. |
 | **A6** | Glossary / custom vocabulary | Upload domain terms, product & people names; bias both transcription and extraction | **New.** Biggest cheap win for the **local** engine, whose small models mangle names (observed: "Alright everyone" → "Aureccio Verione"). Feed the glossary to Whisper as an `initial_prompt` (whisper.cpp `--prompt`, Groq `prompt`) and into the extraction system prompt so owners/products are spelled right. Per-user, optionally per-meeting. |
 | **A7** | Native apps | **macOS + Windows desktop** and **Android mobile**, each with a **free model bundled on-device** | Expands the original Phase 3. Desktop unlocks system-audio capture for **Teams/Zoom desktop apps** (not capturable from a browser tab). Mobile unlocks in-person meetings. Ship a small Whisper + LLM on-device so it works offline, free, and private out of the box — cloud engines stay opt-in. See §13.8. |
+
+### A0 — Cross-cutting principle: every client picks its engine
+
+**Every version of SumMeet — web, Chrome extension, macOS/Windows desktop, Android —
+must let the user choose, per stage, between local processing (free, offline,
+bundled model) and online processing (an API key they supply). This is a
+configuration, never a build-time decision.**
+
+Consequences for the architecture:
+
+- The `TranscriptionProvider` / `LlmProvider` seams (§7.4, §7.6) already make this
+  a per-job resolution, not a boot-time one. Keep it that way.
+- **API keys must be user-configurable at runtime** (entered in the app's settings
+  and stored server/app-side), not only read from a `.env` at deploy. A desktop or
+  mobile user has no `.env` to edit. They stay server/app-side — never shipped to
+  a browser client (hard rule §7.2).
+- Settings are stored **once, centrally**, so secondary clients (the extension
+  today; desktop/mobile later) inherit them instead of each holding their own copy.
+- A client with no key configured and no local model available must degrade with a
+  readable error, not a crash — the pipeline is fail-soft (§7.3).
 | **A8** | Accounts & billing | Auth, usage limits, free/Pro tiers | Original Phase 8 monetization. Free = limited minutes; Pro = more minutes + integrations + private mode. |
 | **A9** | Refinement & GTM | Onboarding, retention, share-a-summary virality, content | Original Phases 7–8. Metrics: retention, meetings/user, time-to-value. |
 
