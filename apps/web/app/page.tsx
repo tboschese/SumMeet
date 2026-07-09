@@ -65,8 +65,10 @@ export default function HomePage() {
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">SumMeet</h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">
+          Sum<span className="text-brand">Meet</span>
+        </h1>
+        <p className="mt-1 text-sm text-ink-soft/70">
           Your meetings, as decision records.
         </p>
       </header>
@@ -83,9 +85,9 @@ export default function HomePage() {
         {meetings === null && !error ? (
           <p className="text-sm text-neutral-400">Loading…</p>
         ) : meetings && meetings.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-neutral-300 bg-white p-12 text-center">
-            <p className="text-sm font-medium text-neutral-700">No meetings yet</p>
-            <p className="mt-1 text-sm text-neutral-500">
+          <div className="rounded-lg border border-dashed border-brand-light bg-white p-12 text-center">
+            <p className="text-sm font-medium text-ink">No meetings yet</p>
+            <p className="mt-1 text-sm text-ink-soft/70">
               Record or upload a meeting to see its insights here.
             </p>
           </div>
@@ -95,13 +97,13 @@ export default function HomePage() {
               <li key={m.id} className="flex items-center">
                 <Link
                   href={`/meetings/${m.id}`}
-                  className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-3 hover:bg-neutral-50"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-3 hover:bg-brand-tint/60"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-neutral-900">
+                    <p className="truncate text-sm font-medium text-ink">
                       {m.title}
                     </p>
-                    <p className="mt-0.5 text-xs text-neutral-500">
+                    <p className="mt-0.5 text-xs text-ink-soft/70">
                       {new Date(m.createdAt).toLocaleString()} ·{" "}
                       {formatDuration(m.durationSec)}
                     </p>
@@ -122,7 +124,7 @@ export default function HomePage() {
         )}
       </section>
 
-      <footer className="mt-10 text-center text-xs text-neutral-400">
+      <footer className="mt-10 text-center text-xs text-ink-soft/50">
         Recording may require consent. Announce that you&apos;re recording and
         follow local laws and your organization&apos;s policy.
       </footer>

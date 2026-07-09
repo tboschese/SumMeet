@@ -7,5 +7,9 @@
 }
 
 body {
-  @apply bg-neutral-50 text-neutral-900 antialiased;
+  @apply bg-surface text-ink antialiased;
+}
+
+::selection {
+  @apply bg-brand-light text-ink;
 }

@@ -38,7 +38,7 @@ function findSegmentIndex(
 }
 
 const toolBtn =
-  "rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50 disabled:opacity-60";
+  "rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint disabled:opacity-60";
 
 /** Render insights as portable Markdown for copy/paste into notes/docs. */
 function insightsToMarkdown(title: string, d: MeetingInsights): string {
@@ -208,7 +208,7 @@ export default function MeetingDetailPage() {
   if (!detail) {
     return (
       <Shell>
-        <p className="text-sm text-neutral-400">Loading…</p>
+        <p className="text-sm text-ink-soft/50">Loading…</p>
       </Shell>
     );
   }
@@ -221,7 +221,7 @@ export default function MeetingDetailPage() {
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{meeting.title}</h1>
-          <p className="mt-1 text-sm text-neutral-500">
+          <p className="mt-1 text-sm text-ink-soft/70">
             {new Date(meeting.createdAt).toLocaleString()}
             {meeting.durationSec ? ` · ${Math.round(meeting.durationSec / 60)} min` : ""}
             {meeting.language ? ` · ${meeting.language}` : ""}
@@ -249,7 +249,7 @@ export default function MeetingDetailPage() {
           <button
             type="button"
             onClick={onDelete}
-            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-ink-soft hover:border-red-300 hover:bg-red-50 hover:text-red-700"
           >
             Delete
           </button>
@@ -257,9 +257,9 @@ export default function MeetingDetailPage() {
       </header>
 
       {processing && (
-        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-6 text-center">
-          <span className="inline-flex items-center gap-2 text-sm font-medium text-blue-700">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-blue-600" />
+        <div className="rounded-lg border border-brand-light bg-brand-tint px-4 py-6 text-center">
+          <span className="inline-flex items-center gap-2 text-sm font-medium text-brand">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-brand" />
             {meeting.status === "TRANSCRIBING"
               ? "Transcribing audio…"
               : meeting.status === "EXTRACTING"
@@ -292,21 +292,21 @@ export default function MeetingDetailPage() {
           <button
             type="button"
             onClick={() => setTranscriptOpen((o) => !o)}
-            className="text-sm font-medium text-neutral-700 hover:text-neutral-900"
+            className="text-sm font-medium text-ink hover:text-brand"
           >
             {transcriptOpen ? "▾" : "▸"} Full transcript ({transcript.segments.length} segments)
           </button>
           {transcriptOpen && (
-            <div className="mt-3 space-y-1 rounded-lg border border-neutral-200 bg-white p-4">
+            <div className="mt-3 space-y-1 rounded-lg border border-brand-light/60 bg-white p-4">
               {transcript.segments.map((seg, i) => (
                 <p
                   key={i}
                   id={`seg-${i}`}
                   className={`rounded px-2 py-1 text-sm transition-colors ${
-                    highlight === i ? "bg-yellow-100" : ""
+                    highlight === i ? "bg-brand-light" : ""
                   }`}
                 >
-                  <span className="mr-2 font-mono text-xs text-neutral-400">
+                  <span className="mr-2 font-mono text-xs text-ink-soft/50">
                     {formatTs(seg.start)}
                   </span>
                   {seg.text}
@@ -323,7 +323,7 @@ export default function MeetingDetailPage() {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
-      <Link href="/" className="text-sm text-neutral-500 hover:text-neutral-800">
+      <Link href="/" className="text-sm text-ink-soft/70 hover:text-brand">
         ← All meetings
       </Link>
       <div className="mt-6">{children}</div>
@@ -349,7 +349,7 @@ function QuoteLink({
     <button
       type="button"
       onClick={() => onQuote(quote)}
-      className="mt-1 block text-left text-xs text-blue-600 hover:underline"
+      className="mt-1 block text-left text-xs text-brand hover:underline"
       title="Jump to this in the transcript"
     >
       “{quote.length > 90 ? `${quote.slice(0, 90)}…` : quote}”
@@ -373,20 +373,20 @@ function Insights({
   return (
     <div className="space-y-10">
       <section>
-        <p className="text-lg font-medium leading-relaxed text-neutral-900">
+        <p className="text-lg font-medium leading-relaxed text-ink">
           {data.tldr}
         </p>
       </section>
 
       <Section title="Executive summary">
-        <p className="text-sm leading-relaxed text-neutral-700">
+        <p className="text-sm leading-relaxed text-ink-soft">
           {data.executiveSummary}
         </p>
       </Section>
 
       {data.keyPoints.length > 0 && (
         <Section title="Key points">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-neutral-700">
+          <ul className="list-disc space-y-1 pl-5 text-sm text-ink-soft">
             {data.keyPoints.map((p, i) => (
               <li key={i}>{p}</li>
             ))}
@@ -398,9 +398,9 @@ function Insights({
         <Section title="Action items">
           <ul className="space-y-3">
             {data.actionItems.map((a, i) => (
-              <li key={i} className="rounded-lg border border-neutral-200 bg-white p-3">
+              <li key={i} className="rounded-lg border border-brand-light/60 bg-white p-3">
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-neutral-900">{a.task}</p>
+                  <p className="text-sm font-medium text-ink">{a.task}</p>
                   {a.priority && (
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -411,7 +411,7 @@ function Insights({
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-ink-soft/70">
                   {a.owner ? `Owner: ${a.owner}` : "Owner: —"}
                   {a.dueDate ? ` · Due: ${a.dueDate}` : ""}
                 </p>
@@ -426,10 +426,10 @@ function Insights({
         <Section title="Decisions">
           <ul className="space-y-3">
             {data.decisions.map((d, i) => (
-              <li key={i} className="rounded-lg border border-neutral-200 bg-white p-3">
-                <p className="text-sm font-medium text-neutral-900">{d.decision}</p>
+              <li key={i} className="rounded-lg border border-brand-light/60 bg-white p-3">
+                <p className="text-sm font-medium text-ink">{d.decision}</p>
                 {d.rationale && (
-                  <p className="mt-1 text-xs text-neutral-500">Why: {d.rationale}</p>
+                  <p className="mt-1 text-xs text-ink-soft/70">Why: {d.rationale}</p>
                 )}
                 <QuoteLink quote={d.sourceQuote} onQuote={onQuote} />
               </li>
@@ -443,8 +443,8 @@ function Insights({
           <ul className="space-y-2">
             {data.topics.map((t, i) => (
               <li key={i}>
-                <p className="text-sm font-medium text-neutral-900">{t.title}</p>
-                <p className="text-sm text-neutral-600">{t.summary}</p>
+                <p className="text-sm font-medium text-ink">{t.title}</p>
+                <p className="text-sm text-ink-soft">{t.summary}</p>
               </li>
             ))}
           </ul>
@@ -457,7 +457,7 @@ function Insights({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-soft/60">
         {title}
       </h2>
       {children}

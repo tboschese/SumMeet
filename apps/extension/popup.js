@@ -30,7 +30,7 @@ const recBtn = document.getElementById("rec");
 async function refreshRecState() {
   const s = await chrome.runtime.sendMessage({ type: "GET_STATE" });
   recBtn.textContent = s?.recording ? "■ Stop recording" : "● Record this tab";
-  recBtn.style.background = s?.recording ? "#111827" : "#dc2626";
+  recBtn.style.background = s?.recording ? "#0E142E" : "#4F42E0";
 }
 refreshRecState();
 

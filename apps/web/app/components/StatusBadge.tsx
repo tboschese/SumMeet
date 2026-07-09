@@ -2,8 +2,8 @@ import type { MeetingStatus } from "@summeet/core/schemas";
 
 const MAP: Record<MeetingStatus, { label: string; className: string }> = {
   UPLOADED: { label: "Queued", className: "bg-neutral-100 text-neutral-600" },
-  TRANSCRIBING: { label: "Transcribing", className: "bg-blue-50 text-blue-700" },
-  EXTRACTING: { label: "Extracting", className: "bg-blue-50 text-blue-700" },
+  TRANSCRIBING: { label: "Transcribing", className: "bg-brand-tint text-brand" },
+  EXTRACTING: { label: "Extracting", className: "bg-brand-tint text-brand" },
   COMPLETED: { label: "Ready", className: "bg-green-50 text-green-700" },
   FAILED: { label: "Failed", className: "bg-red-50 text-red-700" },
 };

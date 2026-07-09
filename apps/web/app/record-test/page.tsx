@@ -69,18 +69,18 @@ export default function RecordTestPage() {
   return (
     <main className="mx-auto min-h-screen max-w-xl px-6 py-12">
       <h1 className="text-xl font-semibold tracking-tight">Recorder test</h1>
-      <p className="mt-1 text-sm text-neutral-500">
+      <p className="mt-1 text-sm text-ink-soft/70">
         Isolated capture harness. Pick a meeting tab and enable{" "}
         <strong>Share tab audio</strong>; your mic is captured too.
       </p>
 
-      <div className="mt-8 rounded-lg border border-neutral-200 bg-white p-6">
+      <div className="mt-8 rounded-lg border border-brand-light/60 bg-white p-6">
         <div className="flex items-center gap-4">
           {status !== "recording" ? (
             <button
               type="button"
               onClick={start}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark"
             >
               ● Record
             </button>
@@ -88,7 +88,7 @@ export default function RecordTestPage() {
             <button
               type="button"
               onClick={stop}
-              className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+              className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-ink/90"
             >
               ■ Stop
             </button>
@@ -109,7 +109,7 @@ export default function RecordTestPage() {
             <button
               type="button"
               onClick={toggleMic}
-              className="ml-auto rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50"
+              className="ml-auto rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
             >
               {micOn ? "Mic on" : "Mic off"}
             </button>
@@ -124,18 +124,18 @@ export default function RecordTestPage() {
 
         {status === "done" && blobUrl && (
           <div className="mt-6 border-t border-neutral-100 pt-6">
-            <p className="text-sm font-medium text-neutral-700">
+            <p className="text-sm font-medium text-ink">
               Recording ready — {(blobSize / 1024 / 1024).toFixed(2)} MB
             </p>
             <audio controls src={blobUrl} className="mt-3 w-full" />
             <a
               href={blobUrl}
               download="summeet-recording.webm"
-              className="mt-3 inline-block rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50"
+              className="mt-3 inline-block rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
             >
               Download .webm
             </a>
-            <p className="mt-3 text-xs text-neutral-500">
+            <p className="mt-3 text-xs text-ink-soft/70">
               Play it back: you should hear <strong>both</strong> the tab and
               your own voice. If your voice is missing, the mic wasn&apos;t
               mixed in.
