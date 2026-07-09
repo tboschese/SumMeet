@@ -476,6 +476,28 @@ MVP ships a single transcript with no speaker labels. For *meetings*, this is th
 
 **13.6 Recording consent.** Recording work calls has legal/policy weight (two-party-consent regions, corporate rules) — sharper at a regulated health company. Product-side: an explicit "recording" indicator and a norm of announcing it. Worth a one-line disclosure in the UI; not a code risk, but a real one.
 
+**13.7 Local-model quality is the gating risk for "free/private" (A3, A6, A7).**
+The local engine works end-to-end, but small models degrade the product's whole
+premise. Measured on the same sample: `whisper base` mis-transcribed names
+("Alright everyone" → "Aureccio Verione") and `llama3.2:3b` **fabricated an
+owner** — the exact failure §6 forbids. Bigger models (`large-v3-turbo`,
+`llama3.1:8b`+) close much of the gap at the cost of RAM and speed. Two levers
+before shipping local as a default: (a) a **glossary** (A6) to pin names, and
+(b) an eval harness that scores owner-accuracy and hallucinated-owner rate per
+model. Until then, cloud stays the default and local is opt-in. A useful middle
+ground the seams already allow: **transcribe locally** (audio never leaves) and
+**extract in the cloud** (only text does).
+
+**13.8 On-device models for native apps (A7).** Bundling a free model is what
+makes desktop/mobile viable offline, but sizes and runtimes differ per platform:
+Apple Silicon can lean on Metal (whisper.cpp) and MLX; Windows needs a CPU/DirectML
+path; Android is the tightest (quantized Whisper `tiny`/`base` + a ~1–3B LLM,
+watch thermals and battery). Decide per platform whether the bundled model is the
+default or a fallback, and keep the cloud engines opt-in. The desktop apps also
+carry the **system-audio capture** problem (§13.5) — spike ScreenCaptureKit on
+macOS and WASAPI loopback on Windows before committing to Electron + a virtual
+audio driver.
+
 ---
 
 ## Appendix A — Refined product roadmap (post-MVP)
@@ -486,12 +508,14 @@ The original 8-phase plan, tightened and reordered. The MVP above = old Phases 0
 |---|---|---|---|
 | **MVP** | Prove the core | **In-browser capture** → validated insights → web app | Merges backend + web + intelligence + browser capture. Extraction quality is the bar. |
 | **A1** | Diarization | Speaker-attributed transcripts + owner-aware action items | **New / promoted.** Biggest quality lever; was missing from the original. |
-| **A2** | Chrome extension | Floating Record button *on the Meet/Teams-web page* → same API | Original Phase 2, minus the capture engine (that shipped in the MVP). Pure UX upgrade: no need to keep a separate SumMeet tab open. |
-| **A3** | Transcription modes | Fast (Groq) / Economic (Whisper) / Private (local) via the provider interface | Original Phase 6, pulled earlier — cost/privacy is a real differentiator. |
+| **A2** ✅ | Chrome extension | Floating Record button *on the Meet/Teams-web page* → same API | **Shipped.** Uses `chrome.tabCapture` (no share-picker) + offscreen doc; same `POST /api/meetings`. |
+| **A3** ✅ | Processing engines | Cloud (Groq) / Local (whisper.cpp + Ollama) chosen per stage | **Shipped.** Free, fully offline "private mode" behind the provider seams; engines can be mixed. Quality of small local models is the open question (§13.7). |
 | **A4** | Integrations | Slack + Notion + email delivery of insights | Original Phase 5. "Consume value without opening the app." |
-| **A5** | macOS app | System-audio capture for **Teams/Zoom desktop apps** / any native app | Original Phase 3. Only needed for people who won't use web clients. **Spike ScreenCaptureKit before Electron+BlackHole** — it may avoid the virtual driver entirely. Its own spec. |
-| **A6** | Accounts & billing | Auth, usage limits, free/Pro tiers | Original Phase 8 monetization. Free = limited minutes; Pro = more minutes + integrations + private mode. |
-| **A7** | Refinement & GTM | Onboarding, retention, share-a-summary virality, content | Original Phases 7–8. Metrics: retention, meetings/user, time-to-value. |
+| **A5** | Custom summary output | User-defined shape of the insights: templates/presets, which sections appear, tone/length, custom fields | **New.** Today the Insight contract is fixed (§6). Let users say "I want decisions + owners only, in bullet form" or define a template per meeting type (1:1, standup, client call). Must stay Zod-validated: user config selects/extends the schema, it never becomes free-form model output. |
+| **A6** | Glossary / custom vocabulary | Upload domain terms, product & people names; bias both transcription and extraction | **New.** Biggest cheap win for the **local** engine, whose small models mangle names (observed: "Alright everyone" → "Aureccio Verione"). Feed the glossary to Whisper as an `initial_prompt` (whisper.cpp `--prompt`, Groq `prompt`) and into the extraction system prompt so owners/products are spelled right. Per-user, optionally per-meeting. |
+| **A7** | Native apps | **macOS + Windows desktop** and **Android mobile**, each with a **free model bundled on-device** | Expands the original Phase 3. Desktop unlocks system-audio capture for **Teams/Zoom desktop apps** (not capturable from a browser tab). Mobile unlocks in-person meetings. Ship a small Whisper + LLM on-device so it works offline, free, and private out of the box — cloud engines stay opt-in. See §13.8. |
+| **A8** | Accounts & billing | Auth, usage limits, free/Pro tiers | Original Phase 8 monetization. Free = limited minutes; Pro = more minutes + integrations + private mode. |
+| **A9** | Refinement & GTM | Onboarding, retention, share-a-summary virality, content | Original Phases 7–8. Metrics: retention, meetings/user, time-to-value. |
 
 ---
 
