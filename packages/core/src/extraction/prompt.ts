@@ -2,6 +2,28 @@
 // the model must return ONLY the JSON object matching MeetingInsightsSchema.
 // The word "json" must appear for Groq's json_object response mode.
 
+import { languageName, MATCH_MEETING } from "../languages.js";
+
+/**
+ * The language rule: by default insights are written in the meeting's own
+ * language; a configured outputLanguage forces them into that language instead
+ * (e.g. a Portuguese meeting summarized in English).
+ */
+function languageRule(outputLanguage?: string): string {
+  if (!outputLanguage || outputLanguage === MATCH_MEETING) {
+    return `- Write all free-text fields in the meeting's own language, and set "language" to that language's ISO 639-1 code.`;
+  }
+  const name = languageName(outputLanguage);
+  return `- Write ALL free-text fields in ${name} (${outputLanguage}), regardless of the language spoken in the meeting. Translate as needed, but keep every "sourceQuote" VERBATIM in the original spoken language. Set "language" to "${outputLanguage}".`;
+}
+
+/** Build the system prompt, honoring the configured insights language. */
+export function buildSystemPrompt(outputLanguage?: string): string {
+  return EXTRACTION_SYSTEM_PROMPT.replace(LANGUAGE_RULE_TOKEN, languageRule(outputLanguage));
+}
+
+const LANGUAGE_RULE_TOKEN = "{{LANGUAGE_RULE}}";
+
 export const EXTRACTION_SYSTEM_PROMPT = `You are an expert meeting analyst. You turn a raw meeting transcript into a structured decision record. The extraction IS the product — it must be good enough that a reader would rather read your output than the transcript.
 
 Return ONLY a single valid JSON object (no prose, no markdown fences) with EXACTLY this shape:
@@ -39,7 +61,8 @@ Rules:
 - "sourceQuote" is your evidence: for EVERY action item and decision, copy the single verbatim transcript span it came from. Use null only when there is genuinely no supporting span — an item that has a clear basis in the transcript but a null sourceQuote is a mistake.
 - Infer "priority" only from real urgency cues in the transcript — a hard/near deadline, words like "urgent"/"ASAP"/"critical"/"blocker", or something blocking others. With no such signal, use null; do not guess.
 - "owner" may be a name ("Sarah") or a role ("the infra team") if the transcript makes it clear; otherwise null.
-- Write all free-text fields in the meeting's own language, and set "language" to that language's ISO 639-1 code. (The rules above are language-agnostic — apply them whatever the meeting's language.)
+{{LANGUAGE_RULE}}
+- The rules above are language-agnostic — apply them whatever the meeting's language.
 - Output the JSON object only. No commentary, no code fences.`;
 
 export function buildUserPrompt(transcript: string): string {

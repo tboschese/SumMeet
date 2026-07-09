@@ -64,13 +64,21 @@ export default function HomePage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
-          Sum<span className="text-brand">Meet</span>
-        </h1>
-        <p className="mt-1 text-sm text-ink-soft/70">
-          Your meetings, as decision records.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+            Sum<span className="text-brand">Meet</span>
+          </h1>
+          <p className="mt-1 text-sm text-ink-soft/70">
+            Your meetings, as decision records.
+          </p>
+        </div>
+        <Link
+          href="/settings"
+          className="shrink-0 rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
+        >
+          Settings
+        </Link>
       </header>
 
       <RecordBar onCreated={refresh} />

@@ -5,6 +5,7 @@
 import type {
   MeetingInsights,
   MeetingStatus,
+  Settings,
   TranscriptSegment,
 } from "@summeet/core/schemas";
 
@@ -97,6 +98,21 @@ export function reextractMeeting(id: string): Promise<{ ok: true }> {
   return fetch(`${API_BASE}/api/meetings/${id}/reextract`, {
     method: "POST",
   }).then(json<{ ok: true }>);
+}
+
+// ── Settings (stored server-side, so the Chrome extension inherits them) ──────
+export function getSettings(): Promise<Settings> {
+  return fetch(`${API_BASE}/api/settings`, { cache: "no-store" }).then(
+    json<Settings>,
+  );
+}
+
+export function saveSettings(settings: Settings): Promise<Settings> {
+  return fetch(`${API_BASE}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  }).then(json<Settings>);
 }
 
 export const PROCESSING_STATUSES: MeetingStatus[] = [

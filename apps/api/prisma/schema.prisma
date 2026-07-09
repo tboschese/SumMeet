@@ -11,6 +11,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Single-row app settings (id is always "singleton"). Lives server-side so the
+// Chrome extension inherits the same preferences without sending anything.
+model Settings {
+  id                    String   @id @default("singleton")
+  transcriptionLanguage String   @default("auto") // "auto" or ISO 639-1
+  outputLanguage        String   @default("match") // "match" or ISO 639-1
+  updatedAt             DateTime @updatedAt
+}
+
 model User {
   id        String    @id @default(cuid())
   email     String    @unique

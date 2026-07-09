@@ -40,6 +40,20 @@ function findSegmentIndex(
 const toolBtn =
   "rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint disabled:opacity-60";
 
+/** Safe, sortable filename: "2026-07-09-weekly-product-sync.md". */
+function markdownFilename(title: string, createdAt: string): string {
+  const date = new Date(createdAt).toISOString().slice(0, 10);
+  const slug =
+    title
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // strip accents
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "meeting";
+  return `${date}-${slug}.md`;
+}
+
 /** Render insights as portable Markdown for copy/paste into notes/docs. */
 function insightsToMarkdown(title: string, d: MeetingInsights): string {
   const lines: string[] = [`# ${title}`, "", `**TL;DR** ${d.tldr}`, ""];
@@ -198,6 +212,19 @@ export default function MeetingDetailPage() {
     }
   }, [detail]);
 
+  // Save insights as a .md file, so it can be filed into a folder / notes app.
+  const onDownload = useCallback(() => {
+    if (!detail?.insights) return;
+    const md = insightsToMarkdown(detail.meeting.title, detail.insights.data);
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = markdownFilename(detail.meeting.title, detail.meeting.createdAt);
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [detail]);
+
   if (error) {
     return (
       <Shell>
@@ -235,6 +262,14 @@ export default function MeetingDetailPage() {
             <>
               <button type="button" onClick={onCopy} className={toolBtn}>
                 {copied ? "Copied ✓" : "Copy MD"}
+              </button>
+              <button
+                type="button"
+                onClick={onDownload}
+                title="Download as .md to file it in a folder"
+                className={toolBtn}
+              >
+                Save .md
               </button>
               <button
                 type="button"

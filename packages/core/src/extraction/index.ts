@@ -5,8 +5,8 @@
 import { MeetingInsightsSchema, type MeetingInsights } from "../schemas.js";
 import {
   buildRepairPrompt,
+  buildSystemPrompt,
   buildUserPrompt,
-  EXTRACTION_SYSTEM_PROMPT,
 } from "./prompt.js";
 
 export interface LlmProvider {
@@ -61,11 +61,11 @@ function tryParse(
 export async function extractInsights(
   transcript: string,
   provider: LlmProvider,
+  opts: { outputLanguage?: string } = {},
 ): Promise<ExtractionResult> {
-  const first = await provider.complete(
-    EXTRACTION_SYSTEM_PROMPT,
-    buildUserPrompt(transcript),
-  );
+  const system = buildSystemPrompt(opts.outputLanguage);
+
+  const first = await provider.complete(system, buildUserPrompt(transcript));
   const firstTry = tryParse(first);
   if (firstTry.ok) {
     return { insights: firstTry.value, rawOutput: first, provider: provider.id };
@@ -73,7 +73,7 @@ export async function extractInsights(
 
   // Repair retry: hand the model its bad output + the exact validation errors.
   const repaired = await provider.complete(
-    EXTRACTION_SYSTEM_PROMPT,
+    system,
     buildRepairPrompt(first, firstTry.error),
   );
   const secondTry = tryParse(repaired);
@@ -93,6 +93,7 @@ export async function extractInsights(
 export { GroqLlamaProvider } from "./groq-llama.js";
 export {
   EXTRACTION_SYSTEM_PROMPT,
+  buildSystemPrompt,
   buildUserPrompt,
   buildRepairPrompt,
 } from "./prompt.js";

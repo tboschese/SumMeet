@@ -10,6 +10,15 @@ export const MeetingStatus = z.enum([
 ]);
 export type MeetingStatus = z.infer<typeof MeetingStatus>;
 
+// ── User settings (server-side, so the extension inherits them too) ───────────
+export const SettingsSchema = z.object({
+  /** "auto" (let Whisper detect) or an ISO 639-1 code hint. */
+  transcriptionLanguage: z.string().min(2),
+  /** "match" (use the meeting's language) or an ISO 639-1 code for the insights. */
+  outputLanguage: z.string().min(2),
+});
+export type Settings = z.infer<typeof SettingsSchema>;
+
 // ── Transcript segments (stored as a JSON String; §8) ─────────────────────────
 export const TranscriptSegmentSchema = z.object({
   start: z.number(), // seconds, absolute in the recording's timeline
