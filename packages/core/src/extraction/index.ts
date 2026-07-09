@@ -91,6 +91,7 @@ export async function extractInsights(
 }
 
 export { GroqLlamaProvider } from "./groq-llama.js";
+export { OllamaProvider } from "./ollama.js";
 export {
   EXTRACTION_SYSTEM_PROMPT,
   buildSystemPrompt,

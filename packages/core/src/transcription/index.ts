@@ -27,4 +27,5 @@ export interface TranscriptionProvider {
 }
 
 export { GroqWhisperProvider } from "./groq.js";
+export { LocalWhisperProvider } from "./local-whisper.js";
 export { transcribeFile } from "./transcribe-file.js";

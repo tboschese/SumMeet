@@ -5,6 +5,7 @@ import {
   SettingsSchema,
 } from "@summeet/core";
 import type { FastifyInstance } from "fastify";
+import { getLocalStatus } from "../local-status.js";
 import { getSettings, saveSettings } from "../settings.js";
 
 /** "auto"/"match" sentinels, or a language we actually offer. */
@@ -23,6 +24,9 @@ function validate(
 
 export function registerSettingsRoutes(app: FastifyInstance): void {
   app.get("/api/settings", async () => getSettings());
+
+  // Is the free/offline engine actually installed and ready?
+  app.get("/api/settings/local-status", async () => getLocalStatus());
 
   app.put("/api/settings", async (request, reply) => {
     const parsed = SettingsSchema.safeParse(request.body);

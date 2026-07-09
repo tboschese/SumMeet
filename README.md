@@ -72,6 +72,38 @@ The in-browser recorder (tab audio + mic, mixed) has a standalone harness at
 > system/screen audio is not (why desktop apps are out of MVP scope — use the
 > web clients).
 
+## Local / private mode (free, offline)
+
+You can run the whole pipeline on your machine — **no API keys, no cost, nothing
+leaves the laptop**. Pick the engine per stage on the **Settings** page (you can
+even mix: transcribe locally, extract in the cloud).
+
+| Stage | Cloud | Local |
+|---|---|---|
+| Transcription | Groq Whisper (fast) | **whisper.cpp** (Metal-accelerated) |
+| Insights | Groq Llama 3.3 70B | **Ollama** (e.g. `llama3.1:8b`) |
+
+Setup:
+
+```bash
+brew install whisper-cpp ollama
+ollama serve &            # background daemon
+ollama pull llama3.1:8b   # the extraction model
+
+# Whisper model → ./data/models/
+mkdir -p data/models && curl -L -o data/models/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+```
+
+Then open **Settings** and switch each engine to *Local*. The page tells you
+exactly what's still missing (binary, model, or the Ollama daemon), and picking
+a local engine that isn't installed fails the job with a readable reason rather
+than crashing. Override paths/models via the `WHISPER_*` / `OLLAMA_*` vars in
+`.env` (see `.env.example`).
+
+Trade-off: local is slower than Groq and the 8B model's extraction quality is a
+step below Llama 3.3 70B — worth checking on your own meetings.
+
 ## Troubleshooting
 
 - **`GROQ_API_KEY is not set`** — the server exits on boot without it. Paste a

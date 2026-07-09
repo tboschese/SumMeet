@@ -115,6 +115,31 @@ export function saveSettings(settings: Settings): Promise<Settings> {
   }).then(json<Settings>);
 }
 
+export interface LocalStatus {
+  whisper: {
+    ready: boolean;
+    binaryFound: boolean;
+    modelFound: boolean;
+    binary: string;
+    modelPath: string;
+  };
+  ollama: {
+    ready: boolean;
+    serverUp: boolean;
+    modelPulled: boolean;
+    model: string;
+    baseUrl: string;
+    availableModels: string[];
+  };
+}
+
+/** Whether the free/offline engines are installed and reachable. */
+export function getLocalStatus(): Promise<LocalStatus> {
+  return fetch(`${API_BASE}/api/settings/local-status`, {
+    cache: "no-store",
+  }).then(json<LocalStatus>);
+}
+
 export const PROCESSING_STATUSES: MeetingStatus[] = [
   "UPLOADED",
   "TRANSCRIBING",

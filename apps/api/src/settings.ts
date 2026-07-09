@@ -13,6 +13,8 @@ export async function getSettings(): Promise<Settings> {
   return {
     transcriptionLanguage: row.transcriptionLanguage,
     outputLanguage: row.outputLanguage,
+    transcriptionEngine: row.transcriptionEngine as Settings["transcriptionEngine"],
+    extractionEngine: row.extractionEngine as Settings["extractionEngine"],
   };
 }
 
@@ -25,6 +27,8 @@ export async function saveSettings(next: Settings): Promise<Settings> {
   return {
     transcriptionLanguage: row.transcriptionLanguage,
     outputLanguage: row.outputLanguage,
+    transcriptionEngine: row.transcriptionEngine as Settings["transcriptionEngine"],
+    extractionEngine: row.extractionEngine as Settings["extractionEngine"],
   };
 }
 

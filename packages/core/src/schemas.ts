@@ -10,12 +10,22 @@ export const MeetingStatus = z.enum([
 ]);
 export type MeetingStatus = z.infer<typeof MeetingStatus>;
 
+// ── Processing engines (SPEC §7.4/§7.6 seams; Appendix A A3 "private mode") ───
+// "cloud" = Groq APIs (fast, cheap, audio/transcript leaves the machine).
+// "local" = whisper.cpp + Ollama (free, offline, nothing leaves the machine).
+export const EngineSchema = z.enum(["cloud", "local"]);
+export type Engine = z.infer<typeof EngineSchema>;
+
 // ── User settings (server-side, so the extension inherits them too) ───────────
 export const SettingsSchema = z.object({
   /** "auto" (let Whisper detect) or an ISO 639-1 code hint. */
   transcriptionLanguage: z.string().min(2),
   /** "match" (use the meeting's language) or an ISO 639-1 code for the insights. */
   outputLanguage: z.string().min(2),
+  /** Which engine transcribes the audio. */
+  transcriptionEngine: EngineSchema,
+  /** Which engine extracts the insights. Can differ from transcription. */
+  extractionEngine: EngineSchema,
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 

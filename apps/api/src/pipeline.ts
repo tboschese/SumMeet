@@ -29,6 +29,7 @@ export async function runPipeline(
     if (!meeting.audioKey) throw new Error("meeting has no audio");
 
     const settings = await getSettings();
+    const { transcription: transcriber, llm } = ctx.resolve(settings);
 
     // 1. Read audio from storage → a temp file for ffmpeg.
     const buf = await ctx.storage.get(meeting.audioKey);
@@ -42,7 +43,7 @@ export async function runPipeline(
       data: { status: "TRANSCRIBING", error: null },
     });
     log?.(`pipeline ${meetingId}: transcribing`);
-    const transcript = await transcribeFile(audioPath, ctx.transcription, {
+    const transcript = await transcribeFile(audioPath, transcriber, {
       language: transcriptionHint(settings),
     });
 
@@ -57,12 +58,12 @@ export async function runPipeline(
         meetingId,
         fullText: transcript.text,
         segments: stringifySegments(transcript.segments),
-        provider: ctx.transcription.id,
+        provider: transcriber.id,
       },
       update: {
         fullText: transcript.text,
         segments: stringifySegments(transcript.segments),
-        provider: ctx.transcription.id,
+        provider: transcriber.id,
       },
     });
 
@@ -74,7 +75,7 @@ export async function runPipeline(
     log?.(`pipeline ${meetingId}: extracting`);
     const { insights, rawOutput, provider } = await extractInsights(
       transcript.text,
-      ctx.llm,
+      llm,
       { outputLanguage: outputLanguage(settings) },
     );
 

@@ -189,9 +189,10 @@ export function registerMeetingRoutes(
       }
       try {
         const settings = await getSettings();
+        const { llm } = ctx.resolve(settings);
         const { insights, rawOutput, provider } = await extractInsights(
           meeting.transcript.fullText,
-          ctx.llm,
+          llm,
           { outputLanguage: outputLanguage(settings) },
         );
         const data = stringifyInsights(insights);
