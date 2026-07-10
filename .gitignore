@@ -21,3 +21,6 @@ out/
 
 # OS
 .DS_Store
+
+# Rust / Tauri build output
+apps/desktop/src-tauri/target/
