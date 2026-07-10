@@ -163,12 +163,15 @@ fn recorder_path() -> Option<PathBuf> {
     None
 }
 
-/// A GUI app launched from Finder inherits a minimal PATH, so `ffmpeg` (which the
-/// recorder shells out to) would not be found — a silent failure. Put the usual
-/// Homebrew locations back before spawning.
+/// A GUI app launched from Finder inherits a minimal PATH (/usr/bin:/bin:…), so
+/// neither `ffmpeg` (which the recorder shells out to) nor `pnpm` (which starts the
+/// backend) would be found — both silent failures that never appear when the app is
+/// launched from a terminal. Put the usual install locations back, including
+/// ~/.local/bin, where corepack puts pnpm.
 fn augmented_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
-    format!("/opt/homebrew/bin:/usr/local/bin:{current}")
+    let home = std::env::var("HOME").unwrap_or_default();
+    format!("/opt/homebrew/bin:/usr/local/bin:{home}/.local/bin:{current}")
 }
 
 /// Spawn the recorder; it records until SIGINT, then joins the channels and
@@ -208,10 +211,21 @@ fn finish_recorder(mut child: Child) -> Result<String, String> {
     }
 
     if !status.success() {
+        // The recorder's diagnostics span several lines (e.g. the microphone
+        // permission explanation); the last line alone loses the point.
+        let detail: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).collect();
+        let tail = detail
+            .iter()
+            .rev()
+            .take(5)
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
         return Err(format!(
             "recorder failed ({}): {}",
             status.code().unwrap_or(-1),
-            stderr.lines().last().unwrap_or("unknown error")
+            if tail.is_empty() { "unknown error" } else { &tail }
         ));
     }
 
@@ -311,9 +325,17 @@ mod tests {
         );
     }
 
+    /// A Finder-launched app has a minimal PATH. Both tools we shell out to must
+    /// still resolve, or they fail silently in production and never in dev.
     #[test]
-    fn path_carries_homebrew_so_ffmpeg_resolves() {
-        assert!(augmented_path().contains("/opt/homebrew/bin"));
+    fn augmented_path_reaches_ffmpeg_and_pnpm() {
+        let path = augmented_path();
+        for tool in ["ffmpeg", "pnpm"] {
+            let found = path.split(':').any(|dir| {
+                !dir.is_empty() && std::path::Path::new(dir).join(tool).exists()
+            });
+            assert!(found, "{tool} not reachable from the augmented PATH: {path}");
+        }
     }
 
     #[test]

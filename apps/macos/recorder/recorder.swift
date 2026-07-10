@@ -276,6 +276,21 @@ struct Main {
                 exit(4)
             }
 
+            // A denied microphone still delivers buffers — silent ones. Counting
+            // samples therefore proves nothing; only the energy does. Bit-exact
+            // silence across a whole recording means the OS muted us, not that the
+            // room was quiet, so say so instead of shipping a half-recording.
+            if rec.mic.peak == 0 {
+                err("""
+                    MICROPHONE CAPTURED PURE SILENCE.
+                    macOS grants the microphone to the responsible process — the first
+                    signed .app in the chain. Launch SumMeet.app (apps/desktop/bundle.sh),
+                    not the bare binary, and approve the prompt.
+                    """)
+                print("MIC_SILENT=1")
+                exit(5)
+            }
+
             try joinStereo(system: sysURL, mic: micURL, out: outURL)
             print("OK \(outURL.path)")
             print("SYSTEM_RMS=\(rec.system.rms) MIC_RMS=\(rec.mic.rms)")
