@@ -101,8 +101,27 @@ a local engine that isn't installed fails the job with a readable reason rather
 than crashing. Override paths/models via the `WHISPER_*` / `OLLAMA_*` vars in
 `.env` (see `.env.example`).
 
-Trade-off: local is slower than Groq and the 8B model's extraction quality is a
-step below Llama 3.3 70B — worth checking on your own meetings.
+Trade-off: local is slower than Groq, and small extraction models are a step
+below Llama 3.3 70B — measure it rather than guess (see below).
+
+### Glossary — the cheap quality win
+
+On **Settings**, fill the **Glossary** with people, product and jargon names.
+It's fed to Whisper as an initial prompt (so names stop being guessed) and into
+the extraction prompt (so they're spelled right). Correcting a spelling is
+allowed; inventing a person is still forbidden.
+
+### Measuring engine quality
+
+```bash
+pnpm eval:engines <audio> <ground-truth-transcript.txt>
+EVAL_USE_GLOSSARY=1 pnpm eval:engines <audio> <truth.txt>   # A/B the glossary
+```
+
+Scores what actually matters (SPEC §13.7): transcription **WER** and whether
+proper nouns survive; extraction **fabricated owners** (a name absent from the
+transcript) and **non-verbatim quotes**. Extraction is scored on the clean
+transcript so the LLM is judged independently of transcription errors.
 
 ## Troubleshooting
 
