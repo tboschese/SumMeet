@@ -7,6 +7,7 @@ import {
   MAX_UPLOAD_BYTES,
   SUMMEET_STEREO_LAYOUT,
 } from "@summeet/core/media";
+import { CaptureMeters } from "./CaptureMeters";
 import { createMeeting } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { isNativeShell, nativeRecorder } from "@/lib/native";
@@ -195,6 +196,9 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
           )}
         </div>
       )}
+
+      {/* Only the native recorder reports levels; the browser path has no sidecar. */}
+      {native && mode === "recording" && <CaptureMeters />}
 
       {error && (
         <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">

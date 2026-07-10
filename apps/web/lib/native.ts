@@ -32,8 +32,20 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
  * so `stop` resolves with the meeting id the server assigned — nothing to POST
  * from here.
  */
+/** Live view of both channels while recording. RMS, linear, 0..~1. */
+export interface CaptureStatus {
+  recording: boolean;
+  system: number;
+  mic: number;
+  elapsed_secs: number;
+  /** The recorder stopped reporting levels — it may have died. */
+  stale: boolean;
+}
+
 export const nativeRecorder = {
   start: (title: string) => invoke<void>("start_recording", { title }),
   stop: () => invoke<string>("stop_recording"),
   isRecording: () => invoke<boolean>("is_recording"),
+  /** Polled while recording, to prove on screen that both sources are alive. */
+  status: () => invoke<CaptureStatus>("capture_status"),
 };

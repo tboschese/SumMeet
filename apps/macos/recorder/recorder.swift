@@ -31,6 +31,9 @@ final class ChannelWriter {
     private(set) var sumSquares: Double = 0
     private(set) var sampleCount = 0
     private(set) var peak: Float = 0
+    /// Energy since the last takeLevel(), for the live meter.
+    private var windowSumSquares: Double = 0
+    private var windowCount = 0
     private let lock = NSLock()
 
     init(url: URL) { self.url = url }
@@ -39,6 +42,17 @@ final class ChannelWriter {
         sampleCount > 0 ? (sumSquares / Double(sampleCount)).squareRoot() : 0
     }
     var wroteAnything: Bool { sampleCount > 0 }
+
+    /// RMS since the previous call, then reset. Recording blind is how every
+    /// capture bug in this project survived to reach the user: report as we go.
+    func takeLevel() -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+        let level = windowCount > 0 ? (windowSumSquares / Double(windowCount)).squareRoot() : 0
+        windowSumSquares = 0
+        windowCount = 0
+        return level
+    }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
         guard sampleBuffer.isValid,
@@ -59,15 +73,20 @@ final class ChannelWriter {
         defer { lock.unlock() }
 
         if let data = pcm.floatChannelData {
+            var blockSumSquares: Double = 0
             for ch in 0..<Int(format.channelCount) {
                 let buf = data[ch]
                 for i in 0..<Int(frames) {
                     let v = buf[i]
-                    sumSquares += Double(v * v)
+                    blockSumSquares += Double(v * v)
                     peak = max(peak, abs(v))
                 }
             }
-            sampleCount += Int(frames) * Int(format.channelCount)
+            let n = Int(frames) * Int(format.channelCount)
+            sumSquares += blockSumSquares
+            sampleCount += n
+            windowSumSquares += blockSumSquares
+            windowCount += n
         }
 
         if file == nil {
@@ -122,6 +141,12 @@ let logURL: URL? = {
     return url
 }()
 
+/// Unbuffered stdout. Swift's `print` is block-buffered when stdout is a pipe, so
+/// the live levels would arrive in one burst at exit — useless for a meter.
+func out(_ s: String) {
+    FileHandle.standardOutput.write("\(s)\n".data(using: .utf8)!)
+}
+
 func err(_ s: String) {
     FileHandle.standardError.write("\(s)\n".data(using: .utf8)!)
     guard let logURL, let h = try? FileHandle(forWritingTo: logURL) else { return }
@@ -147,7 +172,7 @@ func requireMicrophone() async {
             err("microphone: granted")
         } else {
             err("microphone: DENIED by the user")
-            print("MIC_DENIED=1")
+            out("MIC_DENIED=1")
             exit(6)
         }
     case .denied, .restricted:
@@ -158,7 +183,7 @@ func requireMicrophone() async {
             microphone to the responsible process, which must be a signed .app bundle.
             Build it with apps/desktop/bundle.sh and launch SumMeet.app.
             """)
-        print("MIC_DENIED=1")
+        out("MIC_DENIED=1")
         exit(6)
     @unknown default:
         err("microphone: unknown authorization status")
@@ -189,7 +214,7 @@ func requireScreenRecording() {
         Note: rebuilding the app invalidates the grant (ad-hoc signatures are keyed
         by binary hash); remove the stale SumMeet entry and add the new one.
         """)
-    print("SCREEN_DENIED=1")
+    out("SCREEN_DENIED=1")
     exit(8)
 }
 
@@ -369,6 +394,18 @@ struct Main {
             try await stream.startCapture()
             err("recording… (system -> left, mic -> right)")
 
+            // Live meter: the shell polls this to show the user, while recording,
+            // that both sources are actually alive. Every capture failure in this
+            // project was silent until the transcript came back wrong.
+            let meter = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    out(String(format: "LEVEL sys=%.5f mic=%.5f",
+                               rec.system.takeLevel(), rec.mic.takeLevel()))
+                }
+            }
+            defer { meter.cancel() }
+
             if let seconds {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             } else {
@@ -412,7 +449,7 @@ struct Main {
                     signed .app in the chain. Launch SumMeet.app (apps/desktop/bundle.sh),
                     not the bare binary, and approve the prompt.
                     """)
-                print("MIC_SILENT=1")
+                out("MIC_SILENT=1")
                 exit(5)
             }
 
@@ -421,26 +458,26 @@ struct Main {
             // your name. That is worse than no attribution, so refuse to ship it.
             if let r = correlation(sysURL, micURL) {
                 err(String(format: "  channel correlation: %.4f", r))
-                print(String(format: "CHANNEL_CORRELATION=%.4f", r))
+                out(String(format: "CHANNEL_CORRELATION=%.4f", r))
                 if abs(r) > 0.95 {
                     err("""
                         MICROPHONE IS A DUPLICATE OF THE SYSTEM AUDIO (r=\(String(format: "%.4f", r))).
                         The stream handed us the system mix on the microphone output, so
                         every word would be attributed to you. Refusing to write.
                         """)
-                    print("MIC_DUPLICATE=1")
+                    out("MIC_DUPLICATE=1")
                     exit(7)
                 }
             }
 
             try joinStereo(system: sysURL, mic: micURL, out: outURL)
-            print("OK \(outURL.path)")
-            print("SYSTEM_RMS=\(rec.system.rms) MIC_RMS=\(rec.mic.rms)")
+            out("OK \(outURL.path)")
+            out("SYSTEM_RMS=\(rec.system.rms) MIC_RMS=\(rec.mic.rms)")
 
             if let apiBase {
                 err("uploading to \(apiBase)…")
                 let id = try upload(file: outURL, apiBase: apiBase, title: title)
-                print("MEETING_ID=\(id)")
+                out("MEETING_ID=\(id)")
                 try? FileManager.default.removeItem(at: outURL) // the server owns it now
             }
             exit(0)
