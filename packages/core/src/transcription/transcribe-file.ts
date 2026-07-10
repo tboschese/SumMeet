@@ -3,7 +3,6 @@ import {
   cleanupTmp,
   fileSizeBytes,
   makeTmpDir,
-  MAX_TRANSCRIBE_BYTES,
   planChunks,
   preprocessToOpus,
   probeDurationSec,
@@ -32,8 +31,10 @@ export async function transcribeFile(
     const opus = await preprocessToOpus(inputPath, tmp);
     const size = await fileSizeBytes(opus);
 
-    // Small enough to send in one shot — no chunking needed.
-    if (size <= MAX_TRANSCRIBE_BYTES) {
+    // Chunk only to satisfy a provider's upload cap. Local providers have none,
+    // so they see the whole recording in one pass.
+    const cap = provider.maxInputBytes;
+    if (cap === undefined || size <= cap) {
       const buf = await readFile(opus);
       return provider.transcribe(buf, opts);
     }

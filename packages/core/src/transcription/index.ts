@@ -30,6 +30,13 @@ export interface TranscriptionProvider {
   ): Promise<TranscriptionResult>;
   /** Human-readable id stored on the Transcript row, e.g. "groq:whisper-large-v3-turbo". */
   readonly id: string;
+  /**
+   * Largest buffer this provider accepts, if it has a limit. Chunking exists to
+   * satisfy an API's upload cap — a local binary has none, so it transcribes the
+   * whole file in one pass (better context, and it avoids paying whisper.cpp's
+   * ~12s Metal init once per chunk). `undefined` = no limit.
+   */
+  readonly maxInputBytes?: number;
 }
 
 export { GroqWhisperProvider } from "./groq.js";

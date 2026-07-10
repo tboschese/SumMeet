@@ -1,3 +1,4 @@
+import { MAX_TRANSCRIBE_BYTES } from "../audio/index.js";
 import type {
   TranscribeOptions,
   TranscriptionProvider,
@@ -27,6 +28,8 @@ interface GroqVerboseResponse {
  */
 export class GroqWhisperProvider implements TranscriptionProvider {
   readonly id = `groq:${MODEL}`;
+  /** Groq caps transcription uploads; larger audio must be chunked. */
+  readonly maxInputBytes = MAX_TRANSCRIBE_BYTES;
 
   constructor(private readonly apiKey: string) {
     if (!apiKey) throw new Error("GROQ_API_KEY is required");
