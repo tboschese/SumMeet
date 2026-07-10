@@ -19,18 +19,22 @@ See [`SPEC.md`](./SPEC.md) for the full product & engineering spec and
 
 ```bash
 pnpm install
-cp .env.example .env      # then paste your GROQ_API_KEY
+cp .env.example .env
 pnpm db:migrate           # creates ./data/summeet.db
 ```
 
+Then either paste a **Groq API key** on the app's Settings page (cloud engine),
+or install the **free local engine** and run fully offline — see below. No key
+is needed to boot.
+
 ### Environment
 
-One key does everything — this build uses **Groq for both transcription and
-extraction** (no Anthropic/Claude):
+This build uses **Groq** for the cloud engine (no Anthropic/Claude) and
+**whisper.cpp + Ollama** for the local one.
 
 | Var | Required | What |
 |---|---|---|
-| `GROQ_API_KEY` | ✅ | Groq key — Whisper transcription **and** Llama extraction |
+| `GROQ_API_KEY` | — | Groq key for the cloud engine. Optional: set it in **Settings** instead (a desktop/mobile user has no `.env`), or use the local engine. |
 | `DATABASE_URL` | ✅ | SQLite path. Prisma resolves it relative to `apps/api/prisma/`, so the default `file:../../../data/summeet.db` lands at repo-root `./data/`. |
 | `DATA_DIR` | — | Where audio is stored (default `./data`) |
 | `NEXT_PUBLIC_API_BASE_URL` | — | API base for the web app (default `http://localhost:8080`) |
@@ -81,14 +85,14 @@ even mix: transcribe locally, extract in the cloud).
 | Stage | Cloud | Local |
 |---|---|---|
 | Transcription | Groq Whisper (fast) | **whisper.cpp** (Metal-accelerated) |
-| Insights | Groq Llama 3.3 70B | **Ollama** (e.g. `llama3.1:8b`) |
+| Insights | Groq Llama 3.3 70B | **Ollama** (`qwen2.5:7b`) |
 
 Setup:
 
 ```bash
 brew install whisper-cpp ollama
 ollama serve &            # background daemon
-ollama pull llama3.1:8b   # the extraction model
+ollama pull qwen2.5:7b    # extraction model — measured at parity with Groq 70B
 
 # Whisper model → ./data/models/
 mkdir -p data/models && curl -L -o data/models/ggml-large-v3-turbo.bin \
@@ -101,8 +105,11 @@ a local engine that isn't installed fails the job with a readable reason rather
 than crashing. Override paths/models via the `WHISPER_*` / `OLLAMA_*` vars in
 `.env` (see `.env.example`).
 
-Trade-off: local is slower than Groq, and small extraction models are a step
-below Llama 3.3 70B — measure it rather than guess (see below).
+**Measured** on the reference sample (M2 Pro, see SPEC §13.7): local
+`whisper large-v3-turbo` beats Groq on accuracy (18.6% vs 19.6% WER, ~10×
+realtime), and `qwen2.5:7b` + a glossary matches Groq Llama 3.3 70B on every
+metric we score — 26× slower, but free and offline. Avoid `llama3.2:3b`: it
+emits no `sourceQuote` at all, and the evidence link is the product.
 
 ### Glossary — the cheap quality win
 
@@ -125,8 +132,9 @@ transcript so the LLM is judged independently of transcription errors.
 
 ## Troubleshooting
 
-- **`GROQ_API_KEY is not set`** — the server exits on boot without it. Paste a
-  real key into `.env` (not the `...` placeholder).
+- **`No Groq API key configured`** — a cloud-engine job failed because no key is
+  set. Add one on the **Settings** page (or in `.env`), or switch that stage to
+  the local engine. The server boots fine without a key.
 - **`ffmpeg exited …` / job goes `Failed`** — ffmpeg isn't installed or the file
   isn't decodable audio. `brew install ffmpeg`; the failure reason shows on the
   meeting page with a **Retry** button.

@@ -46,13 +46,27 @@ function wordErrorRate(reference: string, hypothesis: string): number {
   return d[r.length]![h.length]! / r.length;
 }
 
-/** Capitalised words in the reference = the people/products that must survive. */
+/**
+ * Capitalised words in the reference = the people/products that must survive.
+ * Sentence-initial words count (people are addressed as "Sarah, where …"), so
+ * common openers and calendar words have to be filtered explicitly instead.
+ */
+const STOPWORDS = new Set([
+  // sentence openers / filler that happen to be capitalised
+  "i", "the", "we", "so", "okay", "next", "one", "great", "good", "yes", "sure",
+  "will", "let", "alright", "perfect", "thanks", "marketing", "everyone", "and",
+  "but", "to", "for", "this", "that", "first", "last", "now", "no", "it", "our",
+  // calendar words are not proper nouns worth pinning
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "january", "february", "march", "april", "may", "june", "july", "august",
+  "september", "october", "november", "december",
+]);
+
 function properNouns(reference: string): string[] {
-  const stop = new Set(["i", "the", "we", "so", "okay", "next", "one", "great", "good", "yes", "sure", "will", "let", "alright", "perfect", "thanks", "marketing"]);
   const found = new Set<string>();
-  for (const m of reference.matchAll(/(?<![.!?]\s)(?<!^)\b([A-Z][a-z]{2,})\b/gm)) {
+  for (const m of reference.matchAll(/\b([A-Z][a-z]{2,})\b/g)) {
     const w = m[1]!.toLowerCase();
-    if (!stop.has(w)) found.add(w);
+    if (!STOPWORDS.has(w)) found.add(w);
   }
   return [...found];
 }

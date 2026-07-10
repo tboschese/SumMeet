@@ -20,7 +20,9 @@ export const WHISPER_MODEL_PATH = process.env.WHISPER_MODEL_PATH
   : path.join(DATA_DIR, "models", "ggml-large-v3-turbo.bin");
 export const OLLAMA_BASE_URL =
   process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b";
+// qwen2.5:7b measured at parity with Groq Llama 3.3 70B on our eval (SPEC
+// §13.7); llama3.2:3b emits no sourceQuotes at all, so it is not a default.
+export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:7b";
 
 /**
  * The pipeline's dependencies. Providers are resolved per job from the user's

@@ -476,17 +476,40 @@ MVP ships a single transcript with no speaker labels. For *meetings*, this is th
 
 **13.6 Recording consent.** Recording work calls has legal/policy weight (two-party-consent regions, corporate rules) — sharper at a regulated health company. Product-side: an explicit "recording" indicator and a norm of announcing it. Worth a one-line disclosure in the UI; not a code risk, but a real one.
 
-**13.7 Local-model quality is the gating risk for "free/private" (A3, A6, A7).**
-The local engine works end-to-end, but small models degrade the product's whole
-premise. Measured on the same sample: `whisper base` mis-transcribed names
-("Alright everyone" → "Aureccio Verione") and `llama3.2:3b` **fabricated an
-owner** — the exact failure §6 forbids. Bigger models (`large-v3-turbo`,
-`llama3.1:8b`+) close much of the gap at the cost of RAM and speed. Two levers
-before shipping local as a default: (a) a **glossary** (A6) to pin names, and
-(b) an eval harness that scores owner-accuracy and hallucinated-owner rate per
-model. Until then, cloud stays the default and local is opt-in. A useful middle
-ground the seams already allow: **transcribe locally** (audio never leaves) and
-**extract in the cloud** (only text does).
+**13.7 Local-model quality — measured, and it holds up.**
+Run `pnpm eval:engines <audio> <truth.txt>`. Results on the reference sample
+(93 s, M2 Pro), scoring the failures §6 forbids:
+
+| Transcription | WER | names kept | time |
+|---|---|---|---|
+| `whisper base` (local) | 30.9% | 2/3 | 3.6 s |
+| `whisper large-v3-turbo` (local) | **18.6%** | 3/3 | 8.1 s |
+| Groq `whisper-large-v3-turbo` | 19.6% | 3/3 | 2.1 s |
+
+| Extraction (on the clean transcript) | items | decisions | fabricated owners | verbatim quotes |
+|---|---|---|---|---|
+| `llama3.2:3b` (local) | 3 | 2 | 0 | **0 emitted** |
+| `qwen2.5:7b` (local) | 3 | 2 | 0 | 5/5 |
+| `qwen2.5:7b` + glossary | 3 | **3** | **0** | **6/6** |
+| Groq `llama-3.3-70b` | 3 | 3 | 0 | 6/6 |
+
+Three conclusions that shape the roadmap:
+
+1. **Local transcription beats the cloud on accuracy** (18.6% vs 19.6% WER) at
+   ~10× realtime. "Private" is not a quality compromise.
+2. **`qwen2.5:7b` + glossary reaches parity with Llama 3.3 70B** on every metric
+   we score — 26× slower, but free and offline. `llama3.2:3b` must not be a
+   default: it emits **no `sourceQuote` at all**, and the evidence link is the
+   product.
+3. **Transcription errors cause extraction hallucination.** `llama3.2:3b`
+   invented an owner ("Sury") from a garbled transcript and invented none from a
+   clean one. Fixing Whisper fixes the stage downstream — which is why the
+   glossary (A6) pays off twice: it lifted `whisper base` from 2/3 to 3/3 names.
+
+Caveat: n=1, on a synthetic TTS sample. Re-run the harness on real meetings
+before treating this as settled. A useful middle ground the seams already allow:
+**transcribe locally** (audio never leaves) and **extract in the cloud** (only
+text does) — which is a supported combination today.
 
 **13.8 On-device models for native apps (A7).** Bundling a free model is what
 makes desktop/mobile viable offline, but sizes and runtimes differ per platform:
