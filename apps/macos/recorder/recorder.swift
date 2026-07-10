@@ -130,18 +130,80 @@ func joinStereo(system: URL, mic: URL, out: URL) throws {
     }
 }
 
+// MARK: - Upload
+
+/// POSTs the recording to the local API, declaring the channel layout. Only our
+/// recorders may declare it: the server refuses to infer speakers otherwise, so a
+/// stranger's panned upload can never be attributed to "You".
+func upload(file: URL, apiBase: String, title: String) throws -> String {
+    let boundary = "summeet-\(UUID().uuidString)"
+    var body = Data()
+
+    func field(_ name: String, _ value: String) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(value)\r\n".data(using: .utf8)!)
+    }
+
+    field("title", title)
+    field("channelLayout", SUMMEET_STEREO_LAYOUT)
+
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"recording.wav\"\r\n".data(using: .utf8)!)
+    body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+    body.append(try Data(contentsOf: file))
+    body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+    var req = URLRequest(url: URL(string: "\(apiBase)/api/meetings")!)
+    req.httpMethod = "POST"
+    req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+    req.timeoutInterval = 300
+
+    var result: Result<String, Error>!
+    let done = DispatchSemaphore(value: 0)
+    URLSession.shared.uploadTask(with: req, from: body) { data, response, error in
+        defer { done.signal() }
+        if let error { result = .failure(error); return }
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code), let data else {
+            let msg = data.flatMap { String(data: $0, encoding: .utf8) } ?? "no body"
+            result = .failure(NSError(domain: "upload", code: code,
+                                      userInfo: [NSLocalizedDescriptionKey: "HTTP \(code): \(msg)"]))
+            return
+        }
+        let id = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])??["id"] as? String
+        result = id.map { .success($0) } ?? .failure(NSError(
+            domain: "upload", code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "response had no meeting id"]))
+    }.resume()
+    done.wait()
+    return try result.get()
+}
+
+/// Kept in sync by hand with SUMMEET_STEREO_LAYOUT in packages/core/src/media.ts.
+let SUMMEET_STEREO_LAYOUT = "summeet-stereo-v1"
+
 // MARK: - Main
 
 @main
 struct Main {
     static func main() async {
-        let args = CommandLine.arguments
-        guard args.count > 1 else {
-            err("usage: recorder <out.wav> [seconds]")
+        var args = Array(CommandLine.arguments.dropFirst())
+        func take(_ flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            let v = args[i + 1]
+            args.removeSubrange(i...(i + 1))
+            return v
+        }
+        let apiBase = take("--api")
+        let title = take("--title") ?? "Meeting"
+
+        guard let outPath = args.first else {
+            err("usage: recorder <out.wav> [seconds] [--api URL] [--title T]")
             exit(64)
         }
-        let outURL = URL(fileURLWithPath: args[1])
-        let seconds: Double? = args.count > 2 ? Double(args[2]) : nil
+        let outURL = URL(fileURLWithPath: outPath)
+        let seconds: Double? = args.count > 1 ? Double(args[1]) : nil
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("summeet-\(UUID().uuidString)")
@@ -217,6 +279,13 @@ struct Main {
             try joinStereo(system: sysURL, mic: micURL, out: outURL)
             print("OK \(outURL.path)")
             print("SYSTEM_RMS=\(rec.system.rms) MIC_RMS=\(rec.mic.rms)")
+
+            if let apiBase {
+                err("uploading to \(apiBase)…")
+                let id = try upload(file: outURL, apiBase: apiBase, title: title)
+                print("MEETING_ID=\(id)")
+                try? FileManager.default.removeItem(at: outURL) // the server owns it now
+            }
             exit(0)
         } catch {
             err("ERROR: \(error.localizedDescription)")

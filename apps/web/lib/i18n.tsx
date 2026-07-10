@@ -61,6 +61,8 @@ const en = {
   "rec.err.MIC_DENIED": "Microphone access was denied. Without it, your own voice isn't recorded.",
   "rec.err.UNSUPPORTED": "This browser doesn't support tab-audio capture. Use desktop Chrome or Edge.",
   "rec.err.UNKNOWN": "Recording error.",
+  "rec.nativeHint": "Captures the system audio + your mic — no tab picker.",
+  "rec.nativeFailed": "The native recorder failed.",
 
   // ── status ──────────────────────────────────────────────────────────────
   "status.UPLOADED": "Queued",
@@ -255,6 +257,8 @@ const ptBR: Record<TKey, string> = {
   "rec.err.UNSUPPORTED":
     "Este navegador não suporta captura de áudio da aba. Use o Chrome ou Edge no desktop.",
   "rec.err.UNKNOWN": "Erro na gravação.",
+  "rec.nativeHint": "Captura o áudio do sistema + seu microfone — sem escolher aba.",
+  "rec.nativeFailed": "O gravador nativo falhou.",
 
   "status.UPLOADED": "Na fila",
   "status.TRANSCRIBING": "Transcrevendo",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ACCEPTED_AUDIO_HINT,
   isAcceptedAudio,
@@ -9,13 +9,18 @@ import {
 } from "@summeet/core/media";
 import { createMeeting } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { isNativeShell, nativeRecorder } from "@/lib/native";
 import { formatElapsed, MeetingRecorder, RecorderError } from "@/lib/recorder";
 
 type Mode = "idle" | "recording" | "uploading";
 
 export function RecordBar({ onCreated }: { onCreated: () => void }) {
   const t = useT();
+  // In the desktop app the OS captures everything; in a browser we capture a tab.
+  const [native, setNative] = useState(false);
+  useEffect(() => setNative(isNativeShell()), []);
   const recorderRef = useRef<MeetingRecorder | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("idle");
   const [elapsed, setElapsed] = useState(0);
@@ -38,6 +43,39 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
     },
     [onCreated, t],
   );
+
+  const startNative = useCallback(async () => {
+    setError(null);
+    try {
+      await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`);
+      setMode("recording");
+      const startedAt = Date.now();
+      setElapsed(0);
+      tickRef.current = setInterval(
+        () => setElapsed(Math.floor((Date.now() - startedAt) / 1000)),
+        1000,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("rec.nativeFailed"));
+      setMode("idle");
+    }
+  }, [t]);
+
+  const stopNative = useCallback(async () => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = null;
+    setMode("uploading");
+    try {
+      // The recorder uploads itself and hands back the meeting id.
+      await nativeRecorder.stop();
+      onCreated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("rec.nativeFailed"));
+    } finally {
+      setMode("idle");
+      setElapsed(0);
+    }
+  }, [onCreated, t]);
 
   const startRecording = useCallback(async () => {
     setError(null);
@@ -102,7 +140,7 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={startRecording}
+            onClick={native ? startNative : startRecording}
             disabled={mode === "uploading"}
             className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
           >
@@ -127,14 +165,14 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
             <span className="text-sm text-brand">{t("rec.uploading")}</span>
           )}
           <span className="ml-auto text-xs text-ink-soft/50">
-            {t("rec.hint")}
+            {native ? t("rec.nativeHint") : t("rec.hint")}
           </span>
         </div>
       ) : (
         <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={stopRecording}
+            onClick={native ? stopNative : stopRecording}
             className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-ink/90"
           >
             {t("rec.stop")}
@@ -146,13 +184,15 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-600" />
             {t("rec.capturing")}
           </span>
-          <button
-            type="button"
-            onClick={toggleMic}
-            className="ml-auto rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
-          >
-            {micOn ? t("rec.micOn") : t("rec.micOff")}
-          </button>
+          {!native && (
+            <button
+              type="button"
+              onClick={toggleMic}
+              className="ml-auto rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
+            >
+              {micOn ? t("rec.micOn") : t("rec.micOff")}
+            </button>
+          )}
         </div>
       )}
 
