@@ -150,9 +150,19 @@ export async function runPipeline(
     // Only for audio a SumMeet recorder declared it wrote: a stereo file alone
     // carries no such meaning, and guessing would attribute a stranger's
     // commitment to "You" on any panned upload. Undeclared audio stays unlabelled.
-    const segments = isSummeetStereoLayout(meeting.channelLayout)
-      ? await assignSpeakers(audioPath, transcript.segments)
-      : transcript.segments;
+    let segments = transcript.segments;
+    if (isSummeetStereoLayout(meeting.channelLayout)) {
+      const attributed = await assignSpeakers(audioPath, transcript.segments);
+      segments = attributed.segments;
+      if (attributed.echoGain >= 1) {
+        // Speakers, not headphones: the mic re-recorded the meeting louder than
+        // the user's own voice, so every label would be a coin flip.
+        log?.(
+          `pipeline ${meetingId}: speaker attribution skipped ` +
+            `(echo gain ${attributed.echoGain.toFixed(2)} — use headphones)`,
+        );
+      }
+    }
 
     const durationSec =
       segments.length > 0 ? Math.round(segments[segments.length - 1]!.end) : null;

@@ -193,6 +193,13 @@ const ECHO_MIN_WINDOWS = 20;
 const ECHO_GAIN_QUANTILE = 0.2;
 /** Beyond this the "echo" is really a mic pointed at a speaker at full blast. */
 const MAX_ECHO_GAIN = 3;
+/**
+ * Past this, the mic hears the room louder than it hears you (measured: laptop
+ * speakers at volume 100 put the meeting into the mic 5x louder than the user's
+ * own voice). No threshold can separate you from the echo there, so we decline to
+ * attribute rather than sign someone else's words with your name.
+ */
+const ECHO_UNRELIABLE = 1;
 
 /**
  * When you listen on speakers, the mic re-records everyone else. That echo scales
@@ -346,19 +353,23 @@ function voteSpeaker(
 export async function assignSpeakers(
   filePath: string,
   segments: TranscriptSegment[],
-): Promise<TranscriptSegment[]> {
-  if (segments.length === 0) return segments;
-  if ((await probeChannels(filePath)) < 2) return segments;
+): Promise<{ segments: TranscriptSegment[]; echoGain: number }> {
+  if (segments.length === 0) return { segments, echoGain: 0 };
+  if ((await probeChannels(filePath)) < 2) return { segments, echoGain: 0 };
 
   const { left, right, windowSec } = await computeChannelEnergy(filePath);
-  if (left.length === 0) return segments;
+  if (left.length === 0) return { segments, echoGain: 0 };
 
   const echoGain = estimateEchoGain(left, right);
+  if (echoGain >= ECHO_UNRELIABLE) return { segments, echoGain };
 
-  return segments.map((seg) => ({
-    ...seg,
-    speaker: voteSpeaker(left, right, seg.start, seg.end, windowSec, echoGain),
-  }));
+  return {
+    segments: segments.map((seg) => ({
+      ...seg,
+      speaker: voteSpeaker(left, right, seg.start, seg.end, windowSec, echoGain),
+    })),
+    echoGain,
+  };
 }
 
 /** Create a private temp dir; caller is responsible for cleanupTmp(). */
