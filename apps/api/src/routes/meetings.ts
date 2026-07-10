@@ -2,17 +2,15 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import {
   ACCEPTED_AUDIO_HINT,
-  extractInsights,
   isAcceptedAudio,
   parseInsights,
   parseSegments,
-  stringifyInsights,
 } from "@summeet/core";
 import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
 import { db } from "../db.js";
 import type { Queue } from "../queue.js";
-import { getSecrets, getSettings, glossary, outputLanguage } from "../settings.js";
+import { extractAndPersist } from "../pipeline.js";
 
 function defaultTitle(filename?: string): string {
   if (filename) {
@@ -175,44 +173,50 @@ export function registerMeetingRoutes(
   );
 
   // Re-extract: re-run extraction over the stored transcript (no re-recording,
-  // no re-transcription) — for iterating on the prompt during validation.
+  // no re-transcription). Also promotes a TRANSCRIBED meeting to COMPLETED.
   app.post<{ Params: { id: string } }>(
     "/api/meetings/:id/reextract",
     async (request, reply) => {
       const meeting = await db.meeting.findUnique({
         where: { id: request.params.id },
-        include: { transcript: true },
+        select: { id: true, transcript: { select: { id: true } } },
       });
       if (!meeting) return reply.code(404).send({ error: "meeting not found" });
       if (!meeting.transcript) {
         return reply.code(400).send({ error: "no transcript to extract from" });
       }
       try {
-        const settings = await getSettings();
-        const { llm } = ctx.resolve(settings, await getSecrets());
-        const { insights, rawOutput, provider } = await extractInsights(
-          meeting.transcript.fullText,
-          llm,
-          { outputLanguage: outputLanguage(settings), glossary: glossary(settings) },
-        );
-        const data = stringifyInsights(insights);
-        await db.insights.upsert({
-          where: { meetingId: meeting.id },
-          create: { meetingId: meeting.id, data, rawOutput, provider },
-          update: { data, rawOutput, provider },
-        });
-        // Promotes a TRANSCRIBED meeting to COMPLETED; a no-op for one already there.
-        await db.meeting.update({
-          where: { id: meeting.id },
-          data: { status: "COMPLETED", language: insights.language, error: null },
-        });
+        await extractAndPersist(meeting.id, ctx, (m) => request.log.info(m));
         return { ok: true };
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
+        await db.meeting
+          .update({ where: { id: meeting.id }, data: { status: "FAILED", error: reason } })
+          .catch(() => {});
         return reply.code(500).send({ error: reason });
       }
     },
   );
+
+  // Batch: summarize every meeting resting at TRANSCRIBED. Queued (not inline)
+  // because a local LLM takes ~40s each and this must not block the request.
+  app.post("/api/meetings/extract-pending", async () => {
+    const pending = await db.meeting.findMany({
+      where: { status: "TRANSCRIBED" },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (pending.length === 0) return { queued: 0 };
+
+    // Flip to EXTRACTING up front: they really are queued, and it lets the UI
+    // poll immediately instead of waiting for the worker to reach each one.
+    await db.meeting.updateMany({
+      where: { id: { in: pending.map((m) => m.id) } },
+      data: { status: "EXTRACTING", error: null },
+    });
+    for (const m of pending) queue.enqueue(m.id, "extract");
+    return { queued: pending.length };
+  });
 
   // Delete: remove the row (transcript/insights cascade) and the audio file.
   app.delete<{ Params: { id: string } }>(

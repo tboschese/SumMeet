@@ -32,6 +32,68 @@ async function discardAudio(
 }
 
 /**
+ * Extract insights from a meeting's stored transcript and mark it COMPLETED.
+ * Needs no audio, so it works for TRANSCRIBED meetings (whose recording is
+ * already gone) and for re-running extraction on a COMPLETED one.
+ * Throws on failure — callers decide whether to surface or absorb it.
+ */
+export async function extractAndPersist(
+  meetingId: string,
+  ctx: PipelineContext,
+  log?: (msg: string) => void,
+): Promise<void> {
+  const meeting = await db.meeting.findUnique({
+    where: { id: meetingId },
+    include: { transcript: true },
+  });
+  if (!meeting) throw new Error(`meeting ${meetingId} not found`);
+  if (!meeting.transcript) throw new Error("no transcript to extract from");
+
+  const settings = await getSettings();
+  const { llm } = ctx.resolve(settings, await getSecrets());
+
+  await db.meeting.update({
+    where: { id: meetingId },
+    data: { status: "EXTRACTING", error: null },
+  });
+  log?.(`extract ${meetingId}: extracting`);
+
+  const { insights, rawOutput, provider } = await extractInsights(
+    meeting.transcript.fullText,
+    llm,
+    { outputLanguage: outputLanguage(settings), glossary: glossary(settings) },
+  );
+  const data = stringifyInsights(insights);
+  await db.insights.upsert({
+    where: { meetingId },
+    create: { meetingId, data, rawOutput, provider },
+    update: { data, rawOutput, provider },
+  });
+  await db.meeting.update({
+    where: { id: meetingId },
+    data: { status: "COMPLETED", language: insights.language, error: null },
+  });
+  log?.(`extract ${meetingId}: COMPLETED`);
+}
+
+/** Fail-soft wrapper for the worker: a failure marks FAILED, never throws. */
+export async function runExtraction(
+  meetingId: string,
+  ctx: PipelineContext,
+  log?: (msg: string) => void,
+): Promise<void> {
+  try {
+    await extractAndPersist(meetingId, ctx, log);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    log?.(`extract ${meetingId}: FAILED — ${reason}`);
+    await db.meeting
+      .update({ where: { id: meetingId }, data: { status: "FAILED", error: reason } })
+      .catch(() => {});
+  }
+}
+
+/**
  * The worker pipeline (SPEC §7.3), fail-soft (CLAUDE.md hard rule #7): read
  * audio → transcribe → extract → persist, driving status
  * TRANSCRIBING → EXTRACTING → COMPLETED — or stopping at TRANSCRIBED when

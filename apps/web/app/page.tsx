@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteMeeting,
+  extractPending,
   isProcessing,
   listMeetings,
   type MeetingListItem,
@@ -34,6 +35,22 @@ export default function HomePage() {
       setError(e instanceof Error ? e.message : "Could not reach the API.");
     }
   }, []);
+
+  // Meetings parked at TRANSCRIBED: transcript ready, insights not requested.
+  const pendingCount = meetings?.filter((m) => m.status === "TRANSCRIBED").length ?? 0;
+  const [summarizing, setSummarizing] = useState(false);
+
+  const onSummarizeAll = useCallback(async () => {
+    setSummarizing(true);
+    try {
+      await extractPending();
+      void refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start summarizing.");
+    } finally {
+      setSummarizing(false);
+    }
+  }, [refresh]);
 
   const onDelete = useCallback(
     async (id: string, title: string) => {
@@ -82,6 +99,24 @@ export default function HomePage() {
       </header>
 
       <RecordBar onCreated={refresh} />
+
+      {pendingCount > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-900">
+            <strong>{pendingCount}</strong>{" "}
+            {pendingCount === 1 ? "meeting is" : "meetings are"} transcribed but
+            not summarized yet.
+          </p>
+          <button
+            type="button"
+            onClick={onSummarizeAll}
+            disabled={summarizing}
+            className="shrink-0 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
+          >
+            {summarizing ? "Queuing…" : `Summarize all ${pendingCount}`}
+          </button>
+        </div>
+      )}
 
       {error && (
         <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">

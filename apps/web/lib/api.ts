@@ -101,6 +101,13 @@ export function reextractMeeting(id: string): Promise<{ ok: true }> {
   }).then(json<{ ok: true }>);
 }
 
+/** Queue extraction for every meeting resting at TRANSCRIBED. */
+export function extractPending(): Promise<{ queued: number }> {
+  return fetch(`${API_BASE}/api/meetings/extract-pending`, {
+    method: "POST",
+  }).then(json<{ queued: number }>);
+}
+
 // ── Settings (stored server-side, so the Chrome extension inherits them) ──────
 // The API never returns the API key, only whether one is configured.
 export function getSettings(): Promise<SettingsView> {
