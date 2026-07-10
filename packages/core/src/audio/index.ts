@@ -193,6 +193,10 @@ const ECHO_MIN_WINDOWS = 20;
 const ECHO_GAIN_QUANTILE = 0.2;
 /** Beyond this the "echo" is really a mic pointed at a speaker at full blast. */
 const MAX_ECHO_GAIN = 3;
+/** A channel counts as *voiced* only this far above its own noise floor (~12 dB). */
+const VOICE_MARGIN = 4;
+/** The quiet end of a channel's windows: room tone, fan, breathing. */
+const NOISE_FLOOR_QUANTILE = 0.1;
 /**
  * Past this, the mic hears the room louder than it hears you (measured: laptop
  * speakers at volume 100 put the meeting into the mic 5x louder than the user's
@@ -200,6 +204,26 @@ const MAX_ECHO_GAIN = 3;
  * attribute rather than sign someone else's words with your name.
  */
 const ECHO_UNRELIABLE = 1;
+
+function quantile(values: number[], q: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]!;
+}
+
+/**
+ * A channel's own noise floor: room tone, fan, breathing. Estimated from the
+ * quiet end of its windows, because "quiet" is a property of this recording's
+ * room and mic gain, not a constant we can hardcode.
+ */
+export function noiseFloor(channel: Float64Array): number {
+  return quantile(Array.from(channel), NOISE_FLOOR_QUANTILE);
+}
+
+/** The bar a channel must clear to count as someone actually speaking. */
+function voiceThreshold(channel: Float64Array): number {
+  return Math.max(SILENCE_RMS, noiseFloor(channel) * VOICE_MARGIN);
+}
 
 /**
  * When you listen on speakers, the mic re-records everyone else. That echo scales
@@ -210,21 +234,25 @@ const ECHO_UNRELIABLE = 1;
  * Echo is roughly a constant gain on the system signal, so estimate that gain
  * from the audio itself: over windows where the system is clearly playing, the
  * *quiet* quantile of mic/system is the ratio when you were silent — i.e. the
- * echo. Your actual voice then has to clear that, not a constant. On headphones
- * the gain collapses to ~0 and the old threshold applies unchanged.
+ * echo. Your actual voice then has to clear that, not a constant.
+ *
+ * The mic's own noise floor is subtracted first, otherwise a quiet meeting heard
+ * on headphones reads its room tone as "echo" and we'd stop attributing speakers
+ * exactly when attribution works best. On headphones the gain collapses to ~0.
  */
 export function estimateEchoGain(left: Float64Array, right: Float64Array): number {
   const ratios: number[] = [];
   const n = Math.min(left.length, right.length);
+  const systemVoiced = voiceThreshold(left);
+  const micNoise = noiseFloor(right);
+
   for (let i = 0; i < n; i++) {
     const l = left[i]!;
-    if (l < SILENCE_RMS * 2) continue; // system not clearly playing: tells us nothing
-    ratios.push(right[i]! / l);
+    if (l < systemVoiced) continue; // system not clearly playing: tells us nothing
+    ratios.push(Math.max(0, right[i]! - micNoise) / l);
   }
   if (ratios.length < ECHO_MIN_WINDOWS) return 0;
-  ratios.sort((a, b) => a - b);
-  const g = ratios[Math.floor(ratios.length * ECHO_GAIN_QUANTILE)]!;
-  return Math.min(g, MAX_ECHO_GAIN);
+  return Math.min(quantile(ratios, ECHO_GAIN_QUANTILE), MAX_ECHO_GAIN);
 }
 
 /** Number of audio channels, via ffprobe. Mono audio can't be diarized this way. */
@@ -327,14 +355,28 @@ function voteSpeaker(
   // On speakers the mic already carries `echoGain × left`; anything at or below
   // that is the meeting talking to itself, not you.
   const selfThreshold = Math.max(SELF_DOMINANCE, echoGain * ECHO_MARGIN);
+  const systemVoiced = voiceThreshold(left);
+  const micVoiced = voiceThreshold(right);
 
   for (let i = from; i < to; i++) {
     const l = left[i]!;
     const r = right[i]!;
-    if (Math.max(l, r) < SILENCE_RMS) continue; // silence
-    if (r > l * selfThreshold) selfWins++;
-    else if (l > r * SELF_DOMINANCE) othersWins++;
-    // otherwise: both active (speakerphone bleed / crosstalk) — no vote
+    // Ask "is anyone speaking on this channel?" before "who is louder?". A pure
+    // ratio hands the window to whichever channel's *noise* happens to win: on
+    // headphones the mic's room tone beat a quietly-mixed meeting and stamped the
+    // video's words as the user's own.
+    const speakingSelf = r > micVoiced;
+    const speakingOthers = l > systemVoiced;
+
+    if (speakingSelf && !speakingOthers) selfWins++;
+    else if (speakingOthers && !speakingSelf) othersWins++;
+    else if (speakingSelf && speakingOthers) {
+      // Both live: could be genuine crosstalk, or the mic hearing the speakers.
+      if (r > l * selfThreshold) selfWins++;
+      else if (l > r * SELF_DOMINANCE) othersWins++;
+      // too close to call — no vote
+    }
+    // neither speaking: silence — no vote
   }
 
   const voiced = selfWins + othersWins;
