@@ -7,11 +7,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MeetingInsights } from "@summeet/core/schemas";
-import {
-  DEFAULT_SECTIONS,
-  sectionSpec,
-  type SectionKey,
-} from "@summeet/core/sections";
+import { DEFAULT_SECTIONS, type SectionKey } from "@summeet/core/sections";
 import {
   deleteMeeting,
   getMeeting,
@@ -23,6 +19,7 @@ import {
   type MeetingDetail,
 } from "@/lib/api";
 import { InsightSections, isMine } from "@/app/components/InsightSections";
+import { useT, type TFunction } from "@/lib/i18n";
 
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
@@ -66,15 +63,16 @@ function insightsToMarkdown(
   title: string,
   d: MeetingInsights,
   sections: SectionKey[],
+  t: TFunction,
 ): string {
   const out: string[] = [`# ${title}`, ""];
   const quote = (q: string | null) => (q ? [`  > ${q}`] : []);
 
   for (const key of sections) {
-    const { label } = sectionSpec(key);
+    const label = t(`section.${key}`);
     switch (key) {
       case "tldr":
-        if (d.tldr) out.push(`**TL;DR** ${d.tldr}`, "");
+        if (d.tldr) out.push(`**${label}** ${d.tldr}`, "");
         break;
       case "executiveSummary":
         if (d.executiveSummary) out.push(`## ${label}`, d.executiveSummary, "");
@@ -142,6 +140,7 @@ function insightsToMarkdown(
 }
 
 export default function MeetingDetailPage() {
+  const t = useT();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params.id;
@@ -158,9 +157,9 @@ export default function MeetingDetailPage() {
       setDetail(await getMeeting(id));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load meeting.");
+      setError(e instanceof Error ? e.message : t("detail.loadFailed"));
     }
-  }, [id]);
+  }, [id, t]);
 
   // The summary's shape is a user setting (SPEC A5).
   useEffect(() => {
@@ -219,32 +218,32 @@ export default function MeetingDetailPage() {
       await retryMeeting(id);
       void refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Retry failed.");
+      setError(e instanceof Error ? e.message : t("detail.reextractFailed"));
     }
-  }, [id, refresh]);
+  }, [id, refresh, t]);
 
   const onDelete = useCallback(async () => {
-    if (!window.confirm("Delete this meeting and its insights? This can't be undone.")) {
+    if (!window.confirm(t("detail.confirmDelete"))) {
       return;
     }
     try {
       await deleteMeeting(id);
       router.push("/");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed.");
+      setError(e instanceof Error ? e.message : t("detail.deleteFailed"));
     }
-  }, [id, router]);
+  }, [id, router, t]);
 
   const onRename = useCallback(async () => {
-    const next = window.prompt("Rename meeting", detail?.meeting.title ?? "");
+    const next = window.prompt(t("detail.renamePrompt"), detail?.meeting.title ?? "");
     if (next == null || !next.trim()) return;
     try {
       await renameMeeting(id, next.trim());
       void refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Rename failed.");
+      setError(e instanceof Error ? e.message : t("detail.renameFailed"));
     }
-  }, [id, detail, refresh]);
+  }, [id, detail, refresh, t]);
 
   const [reextracting, setReextracting] = useState(false);
   const onReextract = useCallback(async () => {
@@ -253,7 +252,7 @@ export default function MeetingDetailPage() {
       await reextractMeeting(id);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Re-extract failed.");
+      setError(e instanceof Error ? e.message : t("detail.reextractFailed"));
     } finally {
       setReextracting(false);
     }
@@ -264,19 +263,19 @@ export default function MeetingDetailPage() {
     if (!detail?.insights) return;
     try {
       await navigator.clipboard.writeText(
-        insightsToMarkdown(detail.meeting.title, detail.insights.data, sections),
+        insightsToMarkdown(detail.meeting.title, detail.insights.data, sections, t),
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError("Could not copy to clipboard.");
+      setError(t("detail.copyFailed"));
     }
-  }, [detail, sections]);
+  }, [detail, sections, t]);
 
   // Save insights as a .md file, so it can be filed into a folder / notes app.
   const onDownload = useCallback(() => {
     if (!detail?.insights) return;
-    const md = insightsToMarkdown(detail.meeting.title, detail.insights.data, sections);
+    const md = insightsToMarkdown(detail.meeting.title, detail.insights.data, sections, t);
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -284,7 +283,7 @@ export default function MeetingDetailPage() {
     a.download = markdownFilename(detail.meeting.title, detail.meeting.createdAt);
     a.click();
     URL.revokeObjectURL(url);
-  }, [detail, sections]);
+  }, [detail, sections, t]);
 
   if (error) {
     return (
@@ -296,7 +295,7 @@ export default function MeetingDetailPage() {
   if (!detail) {
     return (
       <Shell>
-        <p className="text-sm text-ink-soft/50">Loading…</p>
+        <p className="text-sm text-ink-soft/50">{t("common.loading")}</p>
       </Shell>
     );
   }
@@ -311,26 +310,26 @@ export default function MeetingDetailPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{meeting.title}</h1>
           <p className="mt-1 text-sm text-ink-soft/70">
             {new Date(meeting.createdAt).toLocaleString()}
-            {meeting.durationSec ? ` · ${Math.round(meeting.durationSec / 60)} min` : ""}
+            {meeting.durationSec ? ` · ${Math.round(meeting.durationSec / 60)} ${t("detail.minutes")}` : ""}
             {meeting.language ? ` · ${meeting.language}` : ""}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button type="button" onClick={onRename} className={toolBtn}>
-            Rename
+            {t("detail.rename")}
           </button>
           {insights && (
             <>
               <button type="button" onClick={onCopy} className={toolBtn}>
-                {copied ? "Copied ✓" : "Copy MD"}
+                {copied ? t("detail.copied") : t("detail.copyMd")}
               </button>
               <button
                 type="button"
                 onClick={onDownload}
-                title="Download as .md to file it in a folder"
+                title={t("detail.saveMdTitle")}
                 className={toolBtn}
               >
-                Save .md
+                {t("detail.saveMd")}
               </button>
               <button
                 type="button"
@@ -338,7 +337,7 @@ export default function MeetingDetailPage() {
                 disabled={reextracting}
                 className={toolBtn}
               >
-                {reextracting ? "Re-extracting…" : "Re-extract"}
+                {reextracting ? t("detail.reextracting") : t("detail.reextract")}
               </button>
             </>
           )}
@@ -347,7 +346,7 @@ export default function MeetingDetailPage() {
             onClick={onDelete}
             className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-ink-soft hover:border-red-300 hover:bg-red-50 hover:text-red-700"
           >
-            Delete
+            {t("common.delete")}
           </button>
         </div>
       </header>
@@ -357,26 +356,26 @@ export default function MeetingDetailPage() {
           <span className="inline-flex items-center gap-2 text-sm font-medium text-brand">
             <span className="h-2 w-2 animate-pulse rounded-full bg-brand" />
             {meeting.status === "TRANSCRIBING"
-              ? "Transcribing audio…"
+              ? t("detail.busy.TRANSCRIBING")
               : meeting.status === "EXTRACTING"
-                ? "Extracting insights…"
-                : "Queued…"}
+                ? t("detail.busy.EXTRACTING")
+                : t("detail.busy.QUEUED")}
           </span>
         </div>
       )}
 
       {meeting.status === "FAILED" && (
         <div className="rounded-lg border border-red-100 bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-800">Processing failed</p>
+          <p className="text-sm font-medium text-red-800">{t("detail.failed.title")}</p>
           <p className="mt-1 whitespace-pre-wrap break-words text-xs text-red-700">
-            {meeting.error ?? "Unknown error."}
+            {meeting.error ?? t("detail.failed.unknown")}
           </p>
           <button
             type="button"
             onClick={onRetry}
             className="mt-3 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
           >
-            Retry
+            {t("common.retry")}
           </button>
         </div>
       )}
@@ -384,21 +383,15 @@ export default function MeetingDetailPage() {
       {/* Transcript exists, insights don't: the deliberate TRANSCRIBED state. */}
       {!insights && transcript && !processing && meeting.status !== "FAILED" && (
         <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
-          <p className="text-sm font-medium text-amber-900">
-            Transcript ready — insights not generated yet
-          </p>
-          <p className="mt-1 text-xs text-amber-800">
-            Auto-extract is off, so nothing was sent to the insights engine.
-            Generate the decision record when you want; it uses the engine you
-            picked in Settings.
-          </p>
+          <p className="text-sm font-medium text-amber-900">{t("detail.pending.title")}</p>
+          <p className="mt-1 text-xs text-amber-800">{t("detail.pending.hint")}</p>
           <button
             type="button"
             onClick={onReextract}
             disabled={reextracting}
             className="mt-3 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
           >
-            {reextracting ? "Generating…" : "Generate insights"}
+            {reextracting ? t("detail.generating") : t("detail.generate")}
           </button>
         </div>
       )}
@@ -418,7 +411,7 @@ export default function MeetingDetailPage() {
             onClick={() => setTranscriptOpen((o) => !o)}
             className="text-sm font-medium text-ink hover:text-brand"
           >
-            {transcriptOpen ? "▾" : "▸"} Full transcript ({transcript.segments.length} segments)
+            {transcriptOpen ? "▾" : "▸"} {t("detail.transcript", { count: transcript.segments.length })}
           </button>
           {transcriptOpen && (
             <div className="mt-3 space-y-1 rounded-lg border border-brand-light/60 bg-white p-4">
@@ -439,7 +432,7 @@ export default function MeetingDetailPage() {
                         seg.speaker === "self" ? "text-brand" : "text-ink-soft/70"
                       }`}
                     >
-                      {seg.speaker === "self" ? "You" : "Others"}
+                      {seg.speaker === "self" ? t("detail.speaker.self") : t("detail.speaker.others")}
                     </span>
                   )}
                   {seg.text}
@@ -454,10 +447,11 @@ export default function MeetingDetailPage() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
+  const label = useT()("common.backToMeetings");
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
       <Link href="/" className="text-sm text-ink-soft/70 hover:text-brand">
-        ← All meetings
+        {label}
       </Link>
       <div className="mt-6">{children}</div>
     </main>

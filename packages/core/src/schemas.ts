@@ -22,8 +22,14 @@ export type MeetingStatus = z.infer<typeof MeetingStatus>;
 export const EngineSchema = z.enum(["cloud", "local"]);
 export type Engine = z.infer<typeof EngineSchema>;
 
+/** Language of the app's own interface — independent of the meeting's language. */
+export const UiLanguageSchema = z.enum(["en", "pt-BR"]);
+export type UiLanguage = z.infer<typeof UiLanguageSchema>;
+
 // ── User settings (server-side, so the extension inherits them too) ───────────
 export const SettingsSchema = z.object({
+  /** Interface language. Not to be confused with outputLanguage (the insights). */
+  uiLanguage: UiLanguageSchema,
   /** "auto" (let Whisper detect) or an ISO 639-1 code hint. */
   transcriptionLanguage: z.string().min(2),
   /** "match" (use the meeting's language) or an ISO 639-1 code for the insights. */

@@ -12,6 +12,7 @@ import {
   listMeetings,
   type MeetingListItem,
 } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { RecordBar } from "./components/RecordBar";
 import { StatusBadge } from "./components/StatusBadge";
 
@@ -23,6 +24,7 @@ function formatDuration(sec: number | null): string {
 }
 
 export default function HomePage() {
+  const t = useT();
   const [meetings, setMeetings] = useState<MeetingListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -32,9 +34,9 @@ export default function HomePage() {
       setMeetings(await listMeetings());
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not reach the API.");
+      setError(e instanceof Error ? e.message : t("home.apiUnreachable"));
     }
-  }, []);
+  }, [t]);
 
   // Meetings parked at TRANSCRIBED: transcript ready, insights not requested.
   const pendingCount = meetings?.filter((m) => m.status === "TRANSCRIBED").length ?? 0;
@@ -46,23 +48,23 @@ export default function HomePage() {
       await extractPending();
       void refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start summarizing.");
+      setError(e instanceof Error ? e.message : t("home.summarizeFailed"));
     } finally {
       setSummarizing(false);
     }
-  }, [refresh]);
+  }, [refresh, t]);
 
   const onDelete = useCallback(
     async (id: string, title: string) => {
-      if (!window.confirm(`Delete “${title}”? This can't be undone.`)) return;
+      if (!window.confirm(t("home.confirmDelete", { title }))) return;
       try {
         await deleteMeeting(id);
         void refresh();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Delete failed.");
+        setError(e instanceof Error ? e.message : t("home.deleteFailed"));
       }
     },
-    [refresh],
+    [refresh, t],
   );
 
   // Poll every 3s while any meeting is still processing.
@@ -86,15 +88,13 @@ export default function HomePage() {
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
             Sum<span className="text-brand">Meet</span>
           </h1>
-          <p className="mt-1 text-sm text-ink-soft/70">
-            Your meetings, as decision records.
-          </p>
+          <p className="mt-1 text-sm text-ink-soft/70">{t("home.tagline")}</p>
         </div>
         <Link
           href="/settings"
           className="shrink-0 rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
         >
-          Settings
+          {t("common.settings")}
         </Link>
       </header>
 
@@ -103,9 +103,9 @@ export default function HomePage() {
       {pendingCount > 0 && (
         <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
           <p className="text-sm text-amber-900">
-            <strong>{pendingCount}</strong>{" "}
-            {pendingCount === 1 ? "meeting is" : "meetings are"} transcribed but
-            not summarized yet.
+            {t(pendingCount === 1 ? "home.pending.one" : "home.pending.many", {
+              count: pendingCount,
+            })}
           </p>
           <button
             type="button"
@@ -113,7 +113,7 @@ export default function HomePage() {
             disabled={summarizing}
             className="shrink-0 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
           >
-            {summarizing ? "Queuing…" : `Summarize all ${pendingCount}`}
+            {summarizing ? t("home.queuing") : t("home.summarizeAll", { count: pendingCount })}
           </button>
         </div>
       )}
@@ -126,13 +126,11 @@ export default function HomePage() {
 
       <section className="mt-8">
         {meetings === null && !error ? (
-          <p className="text-sm text-neutral-400">Loading…</p>
+          <p className="text-sm text-ink-soft/50">{t("common.loading")}</p>
         ) : meetings && meetings.length === 0 ? (
           <div className="rounded-lg border border-dashed border-brand-light bg-white p-12 text-center">
-            <p className="text-sm font-medium text-ink">No meetings yet</p>
-            <p className="mt-1 text-sm text-ink-soft/70">
-              Record or upload a meeting to see its insights here.
-            </p>
+            <p className="text-sm font-medium text-ink">{t("home.empty.title")}</p>
+            <p className="mt-1 text-sm text-ink-soft/70">{t("home.empty.hint")}</p>
           </div>
         ) : (
           <ul className="divide-y divide-neutral-100 overflow-hidden rounded-lg border border-neutral-200 bg-white">
@@ -156,7 +154,7 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={() => onDelete(m.id, m.title)}
-                  title="Delete meeting"
+                  title={t("home.deleteMeeting")}
                   className="px-3 py-3 text-neutral-300 hover:text-red-600"
                 >
                   ✕
@@ -168,8 +166,7 @@ export default function HomePage() {
       </section>
 
       <footer className="mt-10 text-center text-xs text-ink-soft/50">
-        Recording may require consent. Announce that you&apos;re recording and
-        follow local laws and your organization&apos;s policy.
+        {t("home.consent")}
       </footer>
     </main>
   );

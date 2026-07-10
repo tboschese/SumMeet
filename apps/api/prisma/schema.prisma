@@ -15,6 +15,7 @@ datasource db {
 // Chrome extension inherits the same preferences without sending anything.
 model Settings {
   id                    String   @id @default("singleton")
+  uiLanguage            String   @default("en") // interface language: "en" | "pt-BR"
   transcriptionLanguage String   @default("auto") // "auto" or ISO 639-1
   outputLanguage        String   @default("match") // "match" or ISO 639-1
   transcriptionEngine   String   @default("cloud") // "cloud" (Groq) | "local" (whisper.cpp)

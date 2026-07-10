@@ -16,6 +16,7 @@ import {
   type LocalStatus,
 } from "@/lib/api";
 import { SectionPicker } from "@/app/components/SectionPicker";
+import { UI_LANGUAGES, useI18n, useT } from "@/lib/i18n";
 
 const selectCls =
   "w-full rounded-md border border-brand-light bg-white px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none";
@@ -40,30 +41,33 @@ function Field({
 
 /** Tells the user exactly what's missing before they pick the local engine. */
 function LocalHint({ status }: { status: LocalStatus | null }) {
+  const t = useT();
   if (!status) return null;
   const { whisper, ollama } = status;
   if (whisper.ready && ollama.ready) {
     return (
       <p className="rounded-md bg-brand-tint px-3 py-2 text-xs text-brand">
-        Local engine ready — whisper.cpp + {ollama.model}. Nothing leaves your machine.
+        {t("settings.local.ready", { model: ollama.model })}
       </p>
     );
   }
   const missing: string[] = [];
-  if (!whisper.binaryFound) missing.push("`brew install whisper-cpp`");
-  if (!whisper.modelFound) missing.push(`a Whisper model at ${whisper.modelPath}`);
-  if (!ollama.serverUp) missing.push("Ollama running (`brew install ollama && ollama serve`)");
-  else if (!ollama.modelPulled) missing.push(`\`ollama pull ${ollama.model}\``);
+  if (!whisper.binaryFound) missing.push(t("settings.local.needWhisperBin"));
+  if (!whisper.modelFound) missing.push(t("settings.local.needWhisperModel", { path: whisper.modelPath }));
+  if (!ollama.serverUp) missing.push(t("settings.local.needOllama"));
+  else if (!ollama.modelPulled) missing.push(t("settings.local.needModel", { model: ollama.model }));
 
   return (
     <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
-      Local engine not ready yet. Missing: {missing.join(", ")}.
+      {t("settings.local.missing", { list: missing.join(", ") })}
     </p>
   );
 }
 
 
 export default function SettingsPage() {
+  const t = useT();
+  const { setLang } = useI18n();
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [local, setLocal] = useState<LocalStatus | null>(null);
@@ -74,7 +78,7 @@ export default function SettingsPage() {
     getSettings()
       .then(setSettings)
       .catch((e) =>
-        setError(e instanceof Error ? e.message : "Could not load settings."),
+        setError(e instanceof Error ? e.message : t("settings.loadFailed")),
       );
     getLocalStatus().then(setLocal).catch(() => setLocal(null));
   }, []);
@@ -89,10 +93,10 @@ export default function SettingsPage() {
       setStatus("saved");
       setTimeout(() => setStatus("idle"), 1500);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save.");
+      setError(e instanceof Error ? e.message : t("settings.saveFailed"));
       setStatus("idle");
     }
-  }, []);
+  }, [t]);
 
   /** Write-only: send a value to set it, "" to clear it. */
   const saveKey = useCallback(
@@ -106,24 +110,22 @@ export default function SettingsPage() {
         setStatus("saved");
         setTimeout(() => setStatus("idle"), 1500);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not save the key.");
+        setError(e instanceof Error ? e.message : t("settings.key.saveFailed"));
         setStatus("idle");
       }
     },
-    [settings],
+    [settings, t],
   );
 
   return (
     <main className="mx-auto min-h-screen max-w-2xl px-6 py-12">
       <Link href="/" className="text-sm text-ink-soft/70 hover:text-brand">
-        ← All meetings
+        {t("common.backToMeetings")}
       </Link>
 
       <header className="mb-8 mt-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Settings</h1>
-        <p className="mt-1 text-sm text-ink-soft/70">
-          Applies to new recordings and uploads — including the Chrome extension.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("settings.title")}</h1>
+        <p className="mt-1 text-sm text-ink-soft/70">{t("settings.subtitle")}</p>
       </header>
 
       {error && (
@@ -133,26 +135,44 @@ export default function SettingsPage() {
       )}
 
       {!settings ? (
-        <p className="text-sm text-ink-soft/50">Loading…</p>
+        <p className="text-sm text-ink-soft/50">{t("common.loading")}</p>
       ) : (
         <div className="space-y-8">
+          {/* ── Interface language ─────────────────────────────────────── */}
+          <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">{t("settings.ui.title")}</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">{t("settings.ui.hint")}</p>
+            </div>
+            <select
+              className={selectCls}
+              value={settings.uiLanguage}
+              onChange={(e) => {
+                const next = e.target.value as SettingsView["uiLanguage"];
+                setLang(next); // switch immediately, then persist
+                void update({ ...settings, uiLanguage: next });
+              }}
+            >
+              {UI_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </section>
+
           {/* ── Engines ─────────────────────────────────────────────────── */}
           <section className="space-y-5 rounded-lg border border-brand-light/60 bg-white p-6">
             <div>
-              <h2 className="text-sm font-semibold text-ink">Processing engine</h2>
-              <p className="mt-0.5 text-xs text-ink-soft/70">
-                <strong>Cloud</strong> is fast and cheap but sends audio/transcript
-                to Groq. <strong>Local</strong> is free and fully offline
-                (whisper.cpp + Ollama) — slower, but nothing leaves your machine.
-                You can mix them.
-              </p>
+              <h2 className="text-sm font-semibold text-ink">{t("settings.engine.title")}</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">{t("settings.engine.hint")}</p>
             </div>
 
             <LocalHint status={local} />
 
             <Field
-              label="Transcription engine"
-              hint="Turns the recording into text."
+              label={t("settings.engine.transcription")}
+              hint={t("settings.engine.transcriptionHint")}
             >
               <select
                 className={selectCls}
@@ -164,10 +184,10 @@ export default function SettingsPage() {
                   })
                 }
               >
-                <option value="cloud">Cloud — Groq Whisper (fast)</option>
+                <option value="cloud">{t("settings.engine.cloudTranscription")}</option>
                 <option value="local">
-                  Local — whisper.cpp (free, offline)
-                  {local && !local.whisper.ready ? " — not installed" : ""}
+                  {t("settings.engine.localTranscription")}
+                  {local && !local.whisper.ready ? t("settings.engine.notInstalled") : ""}
                 </option>
               </select>
             </Field>
@@ -182,21 +202,14 @@ export default function SettingsPage() {
                 className="mt-0.5 h-4 w-4 accent-[#4F42E0]"
               />
               <span>
-                <span className="block text-sm font-medium text-ink">
-                  Generate insights automatically
-                </span>
-                <span className="mt-0.5 block text-xs text-ink-soft/70">
-                  Off = stop after transcription and wait. A cheap local Whisper
-                  can then run on every meeting, while the insights engine (cloud,
-                  or a heavy local model) runs only when you ask — and you decide
-                  per meeting whether that transcript goes to the cloud.
-                </span>
+                <span className="block text-sm font-medium text-ink">{t("settings.autoExtract.label")}</span>
+                <span className="mt-0.5 block text-xs text-ink-soft/70">{t("settings.autoExtract.hint")}</span>
               </span>
             </label>
 
             <Field
-              label="Insights engine"
-              hint="Turns the transcript into the decision record."
+              label={t("settings.engine.extraction")}
+              hint={t("settings.engine.extractionHint")}
             >
               <select
                 className={selectCls}
@@ -208,10 +221,10 @@ export default function SettingsPage() {
                   })
                 }
               >
-                <option value="cloud">Cloud — Groq Llama 3.3 70B (fast)</option>
+                <option value="cloud">{t("settings.engine.cloudExtraction")}</option>
                 <option value="local">
-                  Local — Ollama (free, offline)
-                  {local && !local.ollama.ready ? " — not installed" : ""}
+                  {t("settings.engine.localExtraction")}
+                  {local && !local.ollama.ready ? t("settings.engine.notInstalled") : ""}
                 </option>
               </select>
             </Field>
@@ -219,11 +232,11 @@ export default function SettingsPage() {
 
           {/* ── Languages ───────────────────────────────────────────────── */}
           <section className="space-y-5 rounded-lg border border-brand-light/60 bg-white p-6">
-            <h2 className="text-sm font-semibold text-ink">Language</h2>
+            <h2 className="text-sm font-semibold text-ink">{t("settings.lang.title")}</h2>
 
             <Field
-              label="Spoken language (transcription)"
-              hint="Telling Whisper the language up front makes the transcript more accurate. Leave on auto-detect if your meetings vary."
+              label={t("settings.lang.spoken")}
+              hint={t("settings.lang.spokenHint")}
             >
               <select
                 className={selectCls}
@@ -232,7 +245,7 @@ export default function SettingsPage() {
                   update({ ...settings, transcriptionLanguage: e.target.value })
                 }
               >
-                <option value={AUTO_DETECT}>Auto-detect</option>
+                <option value={AUTO_DETECT}>{t("settings.lang.autoDetect")}</option>
                 {LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code}>
                     {l.label}
@@ -242,8 +255,8 @@ export default function SettingsPage() {
             </Field>
 
             <Field
-              label="Insights language (summary, action items, decisions)"
-              hint="Can differ from the spoken language. Quotes always stay verbatim in the original language."
+              label={t("settings.lang.insights")}
+              hint={t("settings.lang.insightsHint")}
             >
               <select
                 className={selectCls}
@@ -252,7 +265,7 @@ export default function SettingsPage() {
                   update({ ...settings, outputLanguage: e.target.value })
                 }
               >
-                <option value={MATCH_MEETING}>Same as the meeting</option>
+                <option value={MATCH_MEETING}>{t("settings.lang.sameAsMeeting")}</option>
                 {LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code}>
                     {l.label}
@@ -265,12 +278,8 @@ export default function SettingsPage() {
           {/* ── Summary shape ───────────────────────────────────────────── */}
           <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
             <div>
-              <h2 className="text-sm font-semibold text-ink">Summary sections</h2>
-              <p className="mt-0.5 text-xs text-ink-soft/70">
-                Pick what the decision record contains and in what order. Sections
-                you leave out aren&apos;t generated at all, so a leaner summary is
-                also a cheaper one.
-              </p>
+              <h2 className="text-sm font-semibold text-ink">{t("settings.sections.title")}</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">{t("settings.sections.hint")}</p>
             </div>
             <SectionPicker
               selected={settings.summarySections}
@@ -281,19 +290,15 @@ export default function SettingsPage() {
           {/* ── Cloud API key ───────────────────────────────────────────── */}
           <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
             <div>
-              <h2 className="text-sm font-semibold text-ink">Cloud API key (Groq)</h2>
-              <p className="mt-0.5 text-xs text-ink-soft/70">
-                Needed only for the cloud engine. Stored server-side and never
-                sent back to the browser. Falls back to <code>GROQ_API_KEY</code>{" "}
-                in <code>.env</code> when unset.
-              </p>
+              <h2 className="text-sm font-semibold text-ink">{t("settings.key.title")}</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">{t("settings.key.hint")}</p>
             </div>
             <div className="flex items-center gap-2">
               <input
                 type="password"
                 autoComplete="off"
                 className="flex-1 rounded-md border border-brand-light bg-white px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none"
-                placeholder={settings.hasGroqApiKey ? "•••••••• (configured)" : "gsk_…"}
+                placeholder={settings.hasGroqApiKey ? t("settings.key.configured") : "gsk_…"}
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
               />
@@ -303,7 +308,7 @@ export default function SettingsPage() {
                 onClick={() => saveKey(keyInput.trim())}
                 className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
               >
-                Save key
+                {t("settings.key.save")}
               </button>
               {settings.hasGroqApiKey && (
                 <button
@@ -311,47 +316,38 @@ export default function SettingsPage() {
                   onClick={() => saveKey("")}
                   className="rounded-md border border-neutral-300 px-3 py-2 text-sm text-ink-soft hover:border-red-300 hover:text-red-700"
                 >
-                  Remove
+                  {t("settings.key.remove")}
                 </button>
               )}
             </div>
             <p className="text-xs text-ink-soft/60">
-              {settings.hasGroqApiKey
-                ? "A key is configured. Cloud engines are available."
-                : "No key configured — cloud engines will fail. Use the local engine to run free and offline."}
+              {settings.hasGroqApiKey ? t("settings.key.present") : t("settings.key.absent")}
             </p>
           </section>
 
           {/* ── Glossary ────────────────────────────────────────────────── */}
           <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
             <div>
-              <h2 className="text-sm font-semibold text-ink">Glossary</h2>
-              <p className="mt-0.5 text-xs text-ink-soft/70">
-                People, product and jargon names. Whisper is conditioned on these
-                so it stops guessing at names, and the extractor spells them
-                right. The single biggest quality win for the local engine.
-              </p>
+              <h2 className="text-sm font-semibold text-ink">{t("settings.glossary.title")}</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">{t("settings.glossary.hint")}</p>
             </div>
             <textarea
               rows={4}
               className="w-full rounded-md border border-brand-light bg-white px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none"
-              placeholder={"Sarah, James, Priya, SumMeet, Kubernetes, ARR, Q3 roadmap"}
+              placeholder={t("settings.glossary.placeholder")}
               value={settings.glossary}
               onBlur={(e) => update({ ...settings, glossary: e.target.value })}
               onChange={(e) =>
                 setSettings({ ...settings, glossary: e.target.value })
               }
             />
-            <p className="text-xs text-ink-soft/60">
-              Comma- or line-separated. Saved when you click away.
-            </p>
+            <p className="text-xs text-ink-soft/60">{t("settings.glossary.foot")}</p>
           </section>
 
           <p className="text-xs text-ink-soft/60">
-            {status === "saving" && "Saving…"}
-            {status === "saved" && <span className="text-brand">Saved ✓</span>}
-            {status === "idle" &&
-              "Changes save automatically. Existing meetings keep their insights — use Re-extract to redo one."}
+            {status === "saving" && t("common.saving")}
+            {status === "saved" && <span className="text-brand">{t("common.saved")}</span>}
+            {status === "idle" && t("settings.autosave")}
           </p>
         </div>
       )}

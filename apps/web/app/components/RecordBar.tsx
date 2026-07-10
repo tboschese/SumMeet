@@ -7,11 +7,13 @@ import {
   MAX_UPLOAD_BYTES,
 } from "@summeet/core/media";
 import { createMeeting } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { formatElapsed, MeetingRecorder, RecorderError } from "@/lib/recorder";
 
 type Mode = "idle" | "recording" | "uploading";
 
 export function RecordBar({ onCreated }: { onCreated: () => void }) {
+  const t = useT();
   const recorderRef = useRef<MeetingRecorder | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("idle");
@@ -27,13 +29,13 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
         await createMeeting(blob, title, filename);
         onCreated();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Upload failed.");
+        setError(e instanceof Error ? e.message : t("rec.uploadFailed"));
       } finally {
         setMode("idle");
         setElapsed(0);
       }
     },
-    [onCreated],
+    [onCreated, t],
   );
 
   const startRecording = useCallback(async () => {
@@ -48,7 +50,7 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
         );
       },
       onError: (e) => {
-        setError(e.message);
+        setError(t(`rec.err.${e.code}`));
         setMode("idle");
       },
     });
@@ -58,10 +60,10 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
       setMicOn(true);
       setMode("recording");
     } catch (e) {
-      setError(e instanceof RecorderError ? e.message : "Could not start recording.");
+      setError(e instanceof RecorderError ? t(`rec.err.${e.code}`) : t("rec.startFailed"));
       setMode("idle");
     }
-  }, [upload]);
+  }, [upload, t]);
 
   const stopRecording = useCallback(() => recorderRef.current?.stop(), []);
 
@@ -79,16 +81,16 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
       e.target.value = "";
       if (!file) return;
       if (!isAcceptedAudio(file.name, file.type)) {
-        setError(`Unsupported file type. Accepted: ${ACCEPTED_AUDIO_HINT}`);
+        setError(t("rec.badType", { list: ACCEPTED_AUDIO_HINT }));
         return;
       }
       if (file.size > MAX_UPLOAD_BYTES) {
-        setError("File is too large (max 500 MB).");
+        setError(t("rec.tooLarge"));
         return;
       }
       void upload(file, file.name, file.name.replace(/\.[^.]+$/, ""));
     },
-    [upload],
+    [upload, t],
   );
 
   return (
@@ -101,7 +103,7 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
             disabled={mode === "uploading"}
             className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
           >
-            ● Record meeting
+            {t("rec.record")}
           </button>
           <button
             type="button"
@@ -109,7 +111,7 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
             disabled={mode === "uploading"}
             className="rounded-md border border-brand-light px-4 py-2 text-sm font-medium text-brand hover:bg-brand-tint disabled:opacity-60"
           >
-            Upload audio
+            {t("rec.upload")}
           </button>
           <input
             ref={fileRef}
@@ -119,10 +121,10 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
             className="hidden"
           />
           {mode === "uploading" && (
-            <span className="text-sm text-brand">Uploading…</span>
+            <span className="text-sm text-brand">{t("rec.uploading")}</span>
           )}
           <span className="ml-auto text-xs text-ink-soft/50">
-            Pick the meeting tab &amp; enable “Share tab audio”.
+            {t("rec.hint")}
           </span>
         </div>
       ) : (
@@ -132,21 +134,21 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
             onClick={stopRecording}
             className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-ink/90"
           >
-            ■ Stop
+            {t("rec.stop")}
           </button>
           <span className="font-mono text-lg tabular-nums text-ink">
             {formatElapsed(elapsed)}
           </span>
           <span className="flex items-center gap-1.5 text-sm text-red-600">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-600" />
-            capturing
+            {t("rec.capturing")}
           </span>
           <button
             type="button"
             onClick={toggleMic}
             className="ml-auto rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
           >
-            {micOn ? "Mic on" : "Mic off"}
+            {micOn ? t("rec.micOn") : t("rec.micOff")}
           </button>
         </div>
       )}

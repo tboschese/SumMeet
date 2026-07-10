@@ -10,6 +10,7 @@
 
 import { useCallback, useState } from "react";
 import { SECTIONS, type SectionKey } from "@summeet/core/sections";
+import { useT } from "@/lib/i18n";
 
 export function SectionPicker({
   selected,
@@ -18,6 +19,7 @@ export function SectionPicker({
   selected: SectionKey[];
   onChange: (next: SectionKey[]) => void;
 }) {
+  const t = useT();
   const unselected = SECTIONS.filter((s) => !selected.includes(s.key));
 
   // `draggable` is only enabled while the grip is held, so text stays selectable
@@ -82,7 +84,7 @@ export function SectionPicker({
               <span
                 onMouseDown={() => setGripHeld(true)}
                 onMouseUp={() => setGripHeld(false)}
-                title="Drag to reorder"
+                title={t("settings.sections.dragTitle")}
                 className="mt-0.5 cursor-grab px-0.5 text-sm leading-none text-brand/50 hover:text-brand active:cursor-grabbing"
               >
                 ⠿
@@ -93,14 +95,14 @@ export function SectionPicker({
 
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-ink">
-                  {spec.label}
+                  {t(`section.${spec.key}`)}
                   {spec.derivedFrom && (
                     <span className="ml-2 rounded bg-white px-1.5 py-0.5 text-[10px] font-normal text-brand">
-                      free — derived
+                      {t("settings.sections.derived")}
                     </span>
                   )}
                 </p>
-                <p className="text-xs text-ink-soft/70">{spec.hint}</p>
+                <p className="text-xs text-ink-soft/70">{t(`section.hint.${spec.key}`)}</p>
               </div>
 
               <div className="flex shrink-0 items-center gap-0.5">
@@ -108,7 +110,7 @@ export function SectionPicker({
                   type="button"
                   onClick={() => reorder(i, i - 1)}
                   disabled={i === 0}
-                  title="Move up"
+                  title={t("settings.sections.moveUp")}
                   className="rounded px-1 py-0.5 text-xs text-brand hover:bg-white disabled:opacity-25"
                 >
                   ↑
@@ -117,7 +119,7 @@ export function SectionPicker({
                   type="button"
                   onClick={() => reorder(i, i + 1)}
                   disabled={i === selected.length - 1}
-                  title="Move down"
+                  title={t("settings.sections.moveDown")}
                   className="rounded px-1 py-0.5 text-xs text-brand hover:bg-white disabled:opacity-25"
                 >
                   ↓
@@ -126,7 +128,7 @@ export function SectionPicker({
                   type="button"
                   onClick={() => onChange(selected.filter((k) => k !== key))}
                   disabled={selected.length === 1}
-                  title={selected.length === 1 ? "Keep at least one section" : "Remove"}
+                  title={selected.length === 1 ? t("settings.sections.keepOne") : t("settings.sections.remove")}
                   className="rounded px-1.5 py-0.5 text-sm text-ink-soft/50 hover:text-red-600 disabled:opacity-25"
                 >
                   ✕
@@ -139,26 +141,24 @@ export function SectionPicker({
 
       {unselected.length > 0 && (
         <div>
-          <p className="mb-1.5 text-xs font-medium text-ink-soft/70">Add a section</p>
+          <p className="mb-1.5 text-xs font-medium text-ink-soft/70">{t("settings.sections.add")}</p>
           <div className="flex flex-wrap gap-1.5">
             {unselected.map((spec) => (
               <button
                 key={spec.key}
                 type="button"
                 onClick={() => onChange([...selected, spec.key])}
-                title={spec.hint}
+                title={t(`section.hint.${spec.key}`)}
                 className="rounded-md border border-brand-light px-2.5 py-1 text-xs text-brand hover:bg-brand-tint"
               >
-                + {spec.label}
+                + {t(`section.${spec.key}`)}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      <p className="text-xs text-ink-soft/50">
-        Drag the ⠿ handle to reorder, or use ↑↓.
-      </p>
+      <p className="text-xs text-ink-soft/50">{t("settings.sections.dragHint")}</p>
     </div>
   );
 }

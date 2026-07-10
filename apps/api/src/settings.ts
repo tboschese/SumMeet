@@ -30,6 +30,7 @@ async function row() {
 export async function getSettings(): Promise<Settings> {
   const r = await row();
   return {
+    uiLanguage: r.uiLanguage as Settings["uiLanguage"],
     transcriptionLanguage: r.transcriptionLanguage,
     outputLanguage: r.outputLanguage,
     transcriptionEngine: r.transcriptionEngine as Settings["transcriptionEngine"],

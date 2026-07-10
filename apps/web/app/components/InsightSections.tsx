@@ -4,7 +4,8 @@
 // (SPEC A5). A section with no content is skipped rather than shown empty.
 
 import type { MeetingInsights } from "@summeet/core/schemas";
-import { sectionSpec, type SectionKey } from "@summeet/core/sections";
+import type { SectionKey } from "@summeet/core/sections";
+import { useT, type TFunction } from "@/lib/i18n";
 
 const PRIORITY: Record<string, string> = {
   high: "bg-red-50 text-red-700",
@@ -35,13 +36,14 @@ function QuoteLink({
   quote: string | null;
   onQuote: (q: string | null) => void;
 }) {
+  const t = useT();
   if (!quote) return null;
   return (
     <button
       type="button"
       onClick={() => onQuote(quote)}
       className="mt-1 block text-left text-xs text-brand hover:underline"
-      title="Jump to this in the transcript"
+      title={t("detail.jumpToQuote")}
     >
       “{quote.length > 90 ? `${quote.slice(0, 90)}…` : quote}”
     </button>
@@ -59,6 +61,7 @@ function ActionItemList({
   items: MeetingInsights["actionItems"];
   onQuote: (q: string | null) => void;
 }) {
+  const t = useT();
   return (
     <ul className="space-y-3">
       {items.map((a, i) => (
@@ -76,8 +79,8 @@ function ActionItemList({
             )}
           </div>
           <p className="mt-1 text-xs text-ink-soft/70">
-            {a.owner ? `Owner: ${a.owner}` : "Owner: —"}
-            {a.dueDate ? ` · Due: ${a.dueDate}` : ""}
+            {`${t("insight.owner")}: ${a.owner ?? t("insight.none")}`}
+            {a.dueDate ? ` · ${t("insight.due")}: ${a.dueDate}` : ""}
           </p>
           <QuoteLink quote={a.sourceQuote} onQuote={onQuote} />
         </Card>
@@ -91,8 +94,9 @@ function renderSection(
   key: SectionKey,
   d: MeetingInsights,
   onQuote: (q: string | null) => void,
+  t: TFunction,
 ): React.ReactNode {
-  const { label } = sectionSpec(key);
+  const label = t(`section.${key}`);
 
   switch (key) {
     case "tldr":
@@ -144,7 +148,7 @@ function renderSection(
               <Card key={i}>
                 <p className="text-sm font-medium text-ink">{dec.decision}</p>
                 {dec.rationale && (
-                  <p className="mt-1 text-xs text-ink-soft/70">Why: {dec.rationale}</p>
+                  <p className="mt-1 text-xs text-ink-soft/70">{t("insight.why")}: {dec.rationale}</p>
                 )}
                 <QuoteLink quote={dec.sourceQuote} onQuote={onQuote} />
               </Card>
@@ -161,7 +165,7 @@ function renderSection(
               <Card key={i}>
                 <p className="text-sm font-medium text-ink">{q.question}</p>
                 {q.askedBy && (
-                  <p className="mt-1 text-xs text-ink-soft/70">Asked by: {q.askedBy}</p>
+                  <p className="mt-1 text-xs text-ink-soft/70">{t("insight.askedBy")}: {q.askedBy}</p>
                 )}
                 <QuoteLink quote={q.sourceQuote} onQuote={onQuote} />
               </Card>
@@ -224,10 +228,10 @@ function renderSection(
       return d.topics.length ? (
         <Section key={key} title={label}>
           <ul className="space-y-2">
-            {d.topics.map((t, i) => (
+            {d.topics.map((topic, i) => (
               <li key={i}>
-                <p className="text-sm font-medium text-ink">{t.title}</p>
-                <p className="text-sm text-ink-soft">{t.summary}</p>
+                <p className="text-sm font-medium text-ink">{topic.title}</p>
+                <p className="text-sm text-ink-soft">{topic.summary}</p>
               </li>
             ))}
           </ul>
@@ -245,9 +249,10 @@ export function InsightSections({
   sections: SectionKey[];
   onQuote: (q: string | null) => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-10">
-      {sections.map((key) => renderSection(key, data, onQuote))}
+      {sections.map((key) => renderSection(key, data, onQuote, t))}
     </div>
   );
 }
