@@ -11,8 +11,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Single-row app settings (id is always "singleton"). Lives server-side so the
-// Chrome extension inherits the same preferences without sending anything.
+// Single-row app settings (id is always "singleton"). Lives server-side so every
+// client (web panel, native capture apps) inherits the same preferences.
 model Settings {
   id                    String   @id @default("singleton")
   uiLanguage            String   @default("en") // interface language: "en" | "pt-BR"

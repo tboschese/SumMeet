@@ -108,7 +108,7 @@ export function extractPending(): Promise<{ queued: number }> {
   }).then(json<{ queued: number }>);
 }
 
-// ── Settings (stored server-side, so the Chrome extension inherits them) ──────
+// ── Settings (stored server-side, so every client inherits them) ─────────────
 // The API never returns the API key, only whether one is configured.
 export function getSettings(): Promise<SettingsView> {
   return fetch(`${API_BASE}/api/settings`, { cache: "no-store" }).then(

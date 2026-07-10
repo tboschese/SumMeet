@@ -497,54 +497,32 @@ Known limits, in priority order:
 
 **13.4 Cost at scale.** Groq turbo + a mid-tier LLM is cheap per meeting, but adds up at free-tier volume. The "economic / private" modes in your roadmap (local Whisper / Ollama) are the release valve — the transcription abstraction (§7.4) is what makes them a drop-in.
 
-**13.5 Browser capture covers the MVP — desktop-app capture is a separate, later project.** With browser-tab capture, the MVP is cross-platform on day one (Meet + Teams-web + Zoom-web), and the hard native-macOS work is deferred. The only gap: **Teams/Zoom *desktop* apps** aren't capturable in the browser on macOS. Mitigation for now — use the web clients. When you do need native desktop capture (Phase A5), **spike ScreenCaptureKit** (macOS 13+ captures system audio natively, no virtual driver) before committing to Electron + BlackHole; it may avoid the driver-install UX nightmare entirely. Dedicated spec when you get there.
+**13.5 System-audio capture on macOS — spiked, and it works.**
+The SPEC said to spike ScreenCaptureKit before committing to Electron + BlackHole.
+Done (`apps/macos/spike/`): ScreenCaptureKit (macOS 13+) hands us the system audio
+mix directly — **no virtual audio driver, no kernel extension, nothing for the
+user to install.**
 
-**13.6 Recording consent.** Recording work calls has legal/policy weight (two-party-consent regions, corporate rules) — sharper at a regulated health company. Product-side: an explicit "recording" indicator and a norm of announcing it. Worth a one-line disclosure in the UI; not a code risk, but a real one.
+| Scenario | RMS | |
+|---|---|---|
+| nothing playing (control) | 0.000000 | silence, as expected |
+| `afplay` (headless process) | 0.000000 | **not captured** |
+| QuickTime (app with a window) | 0.090360 | **captured** |
 
-**13.7 Local-model quality — measured, and it holds up.**
-Run `pnpm eval:engines <audio> <truth.txt>`. Results on the reference sample
-(93 s, M2 Pro), scoring the failures §6 forbids:
+The capture filter is composed of **displays / on-screen windows**, so a process
+with no window contributes no audio. Every real target has a window (Meet in a
+browser, Zoom, Teams, Slack), so this doesn't constrain the product — but it does
+mean the capture path can't be exercised from a headless CLI.
 
-| Transcription | WER | names kept | time |
-|---|---|---|---|
-| `whisper base` (local) | 30.9% | 2/3 | 3.6 s |
-| `whisper large-v3-turbo` (local) | **18.6%** | 3/3 | 8.1 s |
-| Groq `whisper-large-v3-turbo` | 19.6% | 3/3 | 2.1 s |
+Two consequences:
 
-| Extraction (on the clean transcript) | items | decisions | fabricated owners | verbatim quotes |
-|---|---|---|---|---|
-| `llama3.2:3b` (local) | 3 | 2 | 0 | **0 emitted** |
-| `qwen2.5:7b` (local) | 3 | 2 | 0 | 5/5 |
-| `qwen2.5:7b` + glossary | 3 | **3** | **0** | **6/6** |
-| Groq `llama-3.3-70b` | 3 | 3 | 0 | 6/6 |
+1. **The Chrome extension is redundant** and has been removed. Native capture
+   records browser *and* desktop meeting clients, with no tab picker.
+2. **Permissions are per-bundle.** Screen Recording is granted to a code-signed
+   `.app`, not to a bare binary (which would inherit the terminal's grant — fragile,
+   and not something to ask a user for). The app must ship signed.
 
-Three conclusions that shape the roadmap:
-
-1. **Local transcription beats the cloud on accuracy** (18.6% vs 19.6% WER) at
-   ~10× realtime. "Private" is not a quality compromise.
-2. **`qwen2.5:7b` + glossary reaches parity with Llama 3.3 70B** on every metric
-   we score — 26× slower, but free and offline. `llama3.2:3b` must not be a
-   default: it emits **no `sourceQuote` at all**, and the evidence link is the
-   product.
-3. **Transcription errors cause extraction hallucination.** `llama3.2:3b`
-   invented an owner ("Sury") from a garbled transcript and invented none from a
-   clean one. Fixing Whisper fixes the stage downstream — which is why the
-   glossary (A6) pays off twice: it lifted `whisper base` from 2/3 to 3/3 names.
-
-Caveat: n=1, on a synthetic TTS sample. Re-run the harness on real meetings
-before treating this as settled. A useful middle ground the seams already allow:
-**transcribe locally** (audio never leaves) and **extract in the cloud** (only
-text does) — which is a supported combination today.
-
-**13.8 On-device models for native apps (A7).** Bundling a free model is what
-makes desktop/mobile viable offline, but sizes and runtimes differ per platform:
-Apple Silicon can lean on Metal (whisper.cpp) and MLX; Windows needs a CPU/DirectML
-path; Android is the tightest (quantized Whisper `tiny`/`base` + a ~1–3B LLM,
-watch thermals and battery). Decide per platform whether the bundled model is the
-default or a fallback, and keep the cloud engines opt-in. The desktop apps also
-carry the **system-audio capture** problem (§13.5) — spike ScreenCaptureKit on
-macOS and WASAPI loopback on Windows before committing to Electron + a virtual
-audio driver.
+Windows still needs its own spike (**WASAPI loopback**) before its app is built.
 
 ---
 
@@ -556,12 +534,12 @@ The original 8-phase plan, tightened and reordered. The MVP above = old Phases 0
 |---|---|---|---|
 | **MVP** | Prove the core | **In-browser capture** → validated insights → web app | Merges backend + web + intelligence + browser capture. Extraction quality is the bar. |
 | **A1** ✅ | Diarization (self vs others) | Speaker-attributed transcripts + owner-aware action items | **Shipped, at zero cost.** The recorder already captures two physically separate sources, so it writes them as stereo channels (left = tab/others, right = mic/you) and the pipeline reads the speaker off per-window channel energy — no model, no API key, no extra call. Answers the primary job ("what did *I* commit to?"). Distinguishing *between* the other participants still needs a real diarizer; see §13.1. |
-| **A2** ✅ | Chrome extension | Floating Record button *on the Meet/Teams-web page* → same API | **Shipped.** Uses `chrome.tabCapture` (no share-picker) + offscreen doc; same `POST /api/meetings`. |
+| ~~**A2**~~ | ~~Chrome extension~~ | — | **Removed (2026-07).** It existed only to work around a browser limitation. Native system-audio capture (A7) records Meet, Zoom and Teams — browser *or* desktop client — with no extension and no tab picker, so the extension became redundant. Recoverable from git history. |
 | **A3** ✅ | Processing engines | Cloud (Groq) / Local (whisper.cpp + Ollama) chosen per stage | **Shipped.** Free, fully offline "private mode" behind the provider seams; engines can be mixed. Quality of small local models is the open question (§13.7). |
 | **A4** | Integrations | Slack + Notion + email delivery of insights | Original Phase 5. "Consume value without opening the app." |
 | **A5** ✅ | Custom summary output | User picks which sections appear and in what order, from a fixed catalogue | **Shipped, and it *reduces* cost.** A section nobody asked for is neither described in the prompt nor generated, so fewer tokens in and out. Deliberately locked (no free-text prompt) so the Insight contract can't be talked out of shape; every field carries a Zod default, so omitted sections parse and older insights stay readable. Catalogue: TL;DR, executive summary, key points, **your commitments** (derived free from A1's `owner: "You"`), action items, decisions, **open questions**, **risks & blockers**, **next steps**, **numbers mentioned**, topics. |
 | **A6** | Glossary / custom vocabulary | Upload domain terms, product & people names; bias both transcription and extraction | **New.** Biggest cheap win for the **local** engine, whose small models mangle names (observed: "Alright everyone" → "Aureccio Verione"). Feed the glossary to Whisper as an `initial_prompt` (whisper.cpp `--prompt`, Groq `prompt`) and into the extraction system prompt so owners/products are spelled right. Per-user, optionally per-meeting. |
-| **A7** | Native apps | **macOS + Windows desktop** and **Android mobile**, each with a **free model bundled on-device** | Expands the original Phase 3. Desktop unlocks system-audio capture for **Teams/Zoom desktop apps** (not capturable from a browser tab). Mobile unlocks in-person meetings. Ship a small Whisper + LLM on-device so it works offline, free, and private out of the box — cloud engines stay opt-in. See §13.8. |
+| **A7** | Native apps — **the capture strategy** | **macOS + Windows desktop** and **Android mobile**; the web panel stays as the UI | **Promoted: capture now lives in the OS, not the browser.** Desktop apps wrap the existing web UI in a webview and add native system-audio capture + the bundled server, so there is one installable icon and no `pnpm dev`. macOS is validated (see §13.5). Mobile covers in-person meetings. Bundle a small on-device model so it works offline and free out of the box; cloud engines stay opt-in. See §13.8. |
 
 ### A0 — Cross-cutting principle: every client picks its engine
 

@@ -154,12 +154,18 @@ model, no API key and no extra call**.
 Limits: it separates you from everyone else, not the other participants from each
 other. File uploads (mono) carry no speaker data and stay unlabelled.
 
-## Chrome extension (roadmap A2)
+## Capture (roadmap A7)
 
-A floating **Record** button right on the Meet/Teams/Zoom page — no separate
-SumMeet tab, no screen-share picker (uses `chrome.tabCapture`). It uploads to
-the same local API. See [`apps/extension/README.md`](apps/extension/README.md)
-to load it unpacked.
+Recording is moving out of the browser and into the OS. On macOS, ScreenCaptureKit
+captures the system audio mix with **no virtual audio driver** — validated in
+[`apps/macos/spike/`](apps/macos/spike/) — so the native app records Meet, Zoom
+and Teams (browser *or* desktop client) with no extension and no tab picker.
+
+Until the native apps ship, use the web panel's **Record** button (it captures a
+Chrome tab + your mic) or **Upload**.
+
+> The Chrome extension was removed once native capture made it redundant. It's
+> still in the git history if you need it.
 
 ## Layout
 
@@ -168,4 +174,4 @@ Monorepo (pnpm workspaces):
 - `packages/core` — shared Zod schemas (the Insight contract, source of truth).
 - `apps/api` — Fastify API + Prisma (SQLite) + in-process worker.
 - `apps/web` — Next.js (App Router) + Tailwind.
-- `apps/extension` — MV3 Chrome extension (plain JS, load unpacked).
+- `apps/macos` — native capture spike (Swift + ScreenCaptureKit).

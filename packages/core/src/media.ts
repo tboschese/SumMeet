@@ -36,8 +36,8 @@ export const ACCEPTED_AUDIO_HINT = ACCEPTED_AUDIO_EXTENSIONS.join(", ");
 
 /**
  * Stereo layout the recorders write, and the pipeline reads back to tell who
- * spoke without any diarization model (see SpeakerSchema).
- * The Chrome extension's offscreen recorder mirrors these values by hand.
+ * spoke without any diarization model (see SpeakerSchema). Native capture apps
+ * must write the same layout.
  */
 export const CHANNEL_OTHERS = 0; // left  = tab audio (other participants)
 export const CHANNEL_SELF = 1; // right = microphone (you)

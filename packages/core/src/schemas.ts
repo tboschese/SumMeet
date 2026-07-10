@@ -26,7 +26,7 @@ export type Engine = z.infer<typeof EngineSchema>;
 export const UiLanguageSchema = z.enum(["en", "pt-BR"]);
 export type UiLanguage = z.infer<typeof UiLanguageSchema>;
 
-// ── User settings (server-side, so the extension inherits them too) ───────────
+// ── User settings (server-side, so every client inherits them) ───────────────
 export const SettingsSchema = z.object({
   /** Interface language. Not to be confused with outputLanguage (the insights). */
   uiLanguage: UiLanguageSchema,

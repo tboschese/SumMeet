@@ -135,7 +135,7 @@ const en = {
 
   // ── settings ────────────────────────────────────────────────────────────
   "settings.title": "Settings",
-  "settings.subtitle": "Applies to new recordings and uploads — including the Chrome extension.",
+  "settings.subtitle": "Applies to new recordings and uploads, on every client.",
   "settings.loadFailed": "Could not load settings.",
   "settings.saveFailed": "Could not save.",
   "settings.autosave":
@@ -324,8 +324,7 @@ const ptBR: Record<TKey, string> = {
   "insight.none": "—",
 
   "settings.title": "Configurações",
-  "settings.subtitle":
-    "Vale para novas gravações e envios — inclusive pela extensão do Chrome.",
+  "settings.subtitle": "Vale para novas gravações e envios, em qualquer cliente.",
   "settings.loadFailed": "Não foi possível carregar as configurações.",
   "settings.saveFailed": "Não foi possível salvar.",
   "settings.autosave":
