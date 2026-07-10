@@ -17,6 +17,7 @@ import {
   getSettings,
   glossary,
   outputLanguage,
+  sections,
   transcriptionHint,
 } from "./settings.js";
 
@@ -71,6 +72,7 @@ export async function extractAndPersist(
     outputLanguage: outputLanguage(settings),
     glossary: glossary(settings),
     speakerLabelled: labelled,
+    sections: sections(settings),
   });
   const data = stringifyInsights(insights);
   await db.insights.upsert({
@@ -192,6 +194,7 @@ export async function runPipeline(
         outputLanguage: outputLanguage(settings),
         glossary: glossary(settings),
         speakerLabelled: prompted.labelled,
+        sections: sections(settings),
       },
     );
 

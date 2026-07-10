@@ -21,6 +21,7 @@ model Settings {
   extractionEngine      String   @default("cloud") // "cloud" (Groq) | "local" (Ollama)
   glossary              String   @default("") // names/products/jargon; biases both stages
   autoExtract           Boolean  @default(true) // false = stop at TRANSCRIBED, extract on demand
+  summarySections       String   @default("") // JSON array of section keys, in order; "" = defaults
   // Cloud API key set from the UI (desktop/mobile have no .env). Server-side
   // only — never returned by the API, never sent to a browser. Falls back to env.
   groqApiKey            String   @default("")

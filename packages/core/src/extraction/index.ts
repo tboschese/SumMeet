@@ -7,6 +7,7 @@ import {
   buildRepairPrompt,
   buildSystemPrompt,
   buildUserPrompt,
+  type PromptOptions,
 } from "./prompt.js";
 
 export interface LlmProvider {
@@ -61,13 +62,9 @@ function tryParse(
 export async function extractInsights(
   transcript: string,
   provider: LlmProvider,
-  opts: { outputLanguage?: string; glossary?: string; speakerLabelled?: boolean } = {},
+  opts: PromptOptions = {},
 ): Promise<ExtractionResult> {
-  const system = buildSystemPrompt(
-    opts.outputLanguage,
-    opts.glossary,
-    opts.speakerLabelled,
-  );
+  const system = buildSystemPrompt(opts);
 
   const first = await provider.complete(system, buildUserPrompt(transcript));
   const firstTry = tryParse(first);
@@ -98,8 +95,8 @@ export { GroqLlamaProvider } from "./groq-llama.js";
 export { OllamaProvider } from "./ollama.js";
 export { formatTranscriptForPrompt, SELF_LABEL, OTHERS_LABEL } from "./transcript.js";
 export {
-  EXTRACTION_SYSTEM_PROMPT,
   buildSystemPrompt,
   buildUserPrompt,
   buildRepairPrompt,
+  type PromptOptions,
 } from "./prompt.js";

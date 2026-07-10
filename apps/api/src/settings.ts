@@ -1,10 +1,14 @@
 import {
   AUTO_DETECT,
+  DEFAULT_SECTIONS,
   MATCH_MEETING,
+  SectionSchema,
+  type SectionKey,
   type Settings,
   type SettingsUpdate,
   type SettingsView,
 } from "@summeet/core";
+import { z } from "zod";
 import { db } from "./db.js";
 
 const SINGLETON = "singleton";
@@ -32,7 +36,23 @@ export async function getSettings(): Promise<Settings> {
     extractionEngine: r.extractionEngine as Settings["extractionEngine"],
     glossary: r.glossary,
     autoExtract: r.autoExtract,
+    summarySections: parseSections(r.summarySections),
   };
+}
+
+/** Stored as a JSON string (SQLite has no array type). Bad/empty falls back. */
+function parseSections(raw: string): SectionKey[] {
+  if (!raw.trim()) return DEFAULT_SECTIONS;
+  const parsed = z.array(SectionSchema).min(1).safeParse(
+    (() => {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    })(),
+  );
+  return parsed.success ? parsed.data : DEFAULT_SECTIONS;
 }
 
 /** Safe to serialize: reveals only whether a key exists, never its value. */
@@ -54,12 +74,17 @@ export async function getSecrets(): Promise<Secrets> {
 }
 
 export async function saveSettings(next: SettingsUpdate): Promise<SettingsView> {
-  const { groqApiKey, ...rest } = next;
+  const { groqApiKey, summarySections, ...rest } = next;
+  const data = {
+    ...rest,
+    summarySections: JSON.stringify(summarySections),
+    ...(groqApiKey !== undefined && { groqApiKey }),
+  };
   await db.settings.upsert({
     where: { id: SINGLETON },
-    create: { id: SINGLETON, ...rest, ...(groqApiKey !== undefined && { groqApiKey }) },
+    create: { id: SINGLETON, ...data },
     // Omitted key = leave as-is; "" = clear it.
-    update: { ...rest, ...(groqApiKey !== undefined && { groqApiKey }) },
+    update: data,
   });
   return getSettingsView();
 }
@@ -80,4 +105,9 @@ export function outputLanguage(s: Settings): string | undefined {
 export function glossary(s: Settings): string | undefined {
   const g = s.glossary?.trim();
   return g ? g : undefined;
+}
+
+/** Sections the summary should contain, in order. */
+export function sections(s: Settings): SectionKey[] {
+  return s.summarySections?.length ? s.summarySections : DEFAULT_SECTIONS;
 }

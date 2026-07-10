@@ -8,14 +8,21 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MeetingInsights } from "@summeet/core/schemas";
 import {
+  DEFAULT_SECTIONS,
+  sectionSpec,
+  type SectionKey,
+} from "@summeet/core/sections";
+import {
   deleteMeeting,
   getMeeting,
+  getSettings,
   isProcessing,
   reextractMeeting,
   renameMeeting,
   retryMeeting,
   type MeetingDetail,
 } from "@/lib/api";
+import { InsightSections, isMine } from "@/app/components/InsightSections";
 
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
@@ -54,38 +61,84 @@ function markdownFilename(title: string, createdAt: string): string {
   return `${date}-${slug}.md`;
 }
 
-/** Render insights as portable Markdown for copy/paste into notes/docs. */
-function insightsToMarkdown(title: string, d: MeetingInsights): string {
-  const lines: string[] = [`# ${title}`, "", `**TL;DR** ${d.tldr}`, ""];
-  lines.push("## Executive summary", d.executiveSummary, "");
-  if (d.keyPoints.length) {
-    lines.push("## Key points", ...d.keyPoints.map((p) => `- ${p}`), "");
-  }
-  if (d.actionItems.length) {
-    lines.push("## Action items");
-    for (const a of d.actionItems) {
-      const meta = [
-        a.owner ? `owner: ${a.owner}` : null,
-        a.dueDate ? `due: ${a.dueDate}` : null,
-        a.priority ? `priority: ${a.priority}` : null,
-      ].filter(Boolean);
-      lines.push(`- [ ] ${a.task}${meta.length ? ` _(${meta.join(", ")})_` : ""}`);
-      if (a.sourceQuote) lines.push(`  > ${a.sourceQuote}`);
+/** Markdown mirrors the sections (and order) the user configured. */
+function insightsToMarkdown(
+  title: string,
+  d: MeetingInsights,
+  sections: SectionKey[],
+): string {
+  const out: string[] = [`# ${title}`, ""];
+  const quote = (q: string | null) => (q ? [`  > ${q}`] : []);
+
+  for (const key of sections) {
+    const { label } = sectionSpec(key);
+    switch (key) {
+      case "tldr":
+        if (d.tldr) out.push(`**TL;DR** ${d.tldr}`, "");
+        break;
+      case "executiveSummary":
+        if (d.executiveSummary) out.push(`## ${label}`, d.executiveSummary, "");
+        break;
+      case "keyPoints":
+        if (d.keyPoints.length)
+          out.push(`## ${label}`, ...d.keyPoints.map((p) => `- ${p}`), "");
+        break;
+      case "myCommitments":
+      case "actionItems": {
+        const items =
+          key === "myCommitments" ? d.actionItems.filter((a) => isMine(a.owner)) : d.actionItems;
+        if (!items.length) break;
+        out.push(`## ${label}`);
+        for (const a of items) {
+          const meta = [
+            a.owner ? `owner: ${a.owner}` : null,
+            a.dueDate ? `due: ${a.dueDate}` : null,
+            a.priority ? `priority: ${a.priority}` : null,
+          ].filter(Boolean);
+          out.push(`- [ ] ${a.task}${meta.length ? ` _(${meta.join(", ")})_` : ""}`, ...quote(a.sourceQuote));
+        }
+        out.push("");
+        break;
+      }
+      case "decisions":
+        if (!d.decisions.length) break;
+        out.push(`## ${label}`);
+        for (const dec of d.decisions) {
+          out.push(`- ${dec.decision}${dec.rationale ? ` — _${dec.rationale}_` : ""}`, ...quote(dec.sourceQuote));
+        }
+        out.push("");
+        break;
+      case "openQuestions":
+        if (!d.openQuestions.length) break;
+        out.push(`## ${label}`);
+        for (const q of d.openQuestions) {
+          out.push(`- ${q.question}${q.askedBy ? ` _(asked by ${q.askedBy})_` : ""}`, ...quote(q.sourceQuote));
+        }
+        out.push("");
+        break;
+      case "risks":
+        if (!d.risks.length) break;
+        out.push(`## ${label}`);
+        for (const r of d.risks) {
+          out.push(`- ${r.risk}${r.severity ? ` _(${r.severity})_` : ""}`, ...quote(r.sourceQuote));
+        }
+        out.push("");
+        break;
+      case "nextSteps":
+        if (d.nextSteps.length)
+          out.push(`## ${label}`, ...d.nextSteps.map((s, i) => `${i + 1}. ${s}`), "");
+        break;
+      case "metrics":
+        if (d.metrics.length)
+          out.push(`## ${label}`, ...d.metrics.map((m) => `- **${m.value}** — ${m.label}`), "");
+        break;
+      case "topics":
+        if (d.topics.length)
+          out.push(`## ${label}`, ...d.topics.map((t) => `- **${t.title}**: ${t.summary}`), "");
+        break;
     }
-    lines.push("");
   }
-  if (d.decisions.length) {
-    lines.push("## Decisions");
-    for (const dec of d.decisions) {
-      lines.push(`- ${dec.decision}${dec.rationale ? ` — _${dec.rationale}_` : ""}`);
-      if (dec.sourceQuote) lines.push(`  > ${dec.sourceQuote}`);
-    }
-    lines.push("");
-  }
-  if (d.topics.length) {
-    lines.push("## Topics", ...d.topics.map((t) => `- **${t.title}**: ${t.summary}`), "");
-  }
-  return lines.join("\n").trim();
+  return out.join("\n").trim();
 }
 
 export default function MeetingDetailPage() {
@@ -93,6 +146,7 @@ export default function MeetingDetailPage() {
   const router = useRouter();
   const id = params.id;
   const [detail, setDetail] = useState<MeetingDetail | null>(null);
+  const [sections, setSections] = useState<SectionKey[]>(DEFAULT_SECTIONS);
   const [error, setError] = useState<string | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [highlight, setHighlight] = useState<number | null>(null);
@@ -107,6 +161,13 @@ export default function MeetingDetailPage() {
       setError(e instanceof Error ? e.message : "Could not load meeting.");
     }
   }, [id]);
+
+  // The summary's shape is a user setting (SPEC A5).
+  useEffect(() => {
+    getSettings()
+      .then((s) => setSections(s.summarySections))
+      .catch(() => setSections(DEFAULT_SECTIONS));
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -203,19 +264,19 @@ export default function MeetingDetailPage() {
     if (!detail?.insights) return;
     try {
       await navigator.clipboard.writeText(
-        insightsToMarkdown(detail.meeting.title, detail.insights.data),
+        insightsToMarkdown(detail.meeting.title, detail.insights.data, sections),
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
       setError("Could not copy to clipboard.");
     }
-  }, [detail]);
+  }, [detail, sections]);
 
   // Save insights as a .md file, so it can be filed into a folder / notes app.
   const onDownload = useCallback(() => {
     if (!detail?.insights) return;
-    const md = insightsToMarkdown(detail.meeting.title, detail.insights.data);
+    const md = insightsToMarkdown(detail.meeting.title, detail.insights.data, sections);
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -223,7 +284,7 @@ export default function MeetingDetailPage() {
     a.download = markdownFilename(detail.meeting.title, detail.meeting.createdAt);
     a.click();
     URL.revokeObjectURL(url);
-  }, [detail]);
+  }, [detail, sections]);
 
   if (error) {
     return (
@@ -342,7 +403,13 @@ export default function MeetingDetailPage() {
         </div>
       )}
 
-      {insights && <Insights data={insights.data} onQuote={scrollToQuote} />}
+      {insights && (
+        <InsightSections
+          data={insights.data}
+          sections={sections}
+          onQuote={scrollToQuote}
+        />
+      )}
 
       {transcript && (
         <section className="mt-10">
@@ -403,130 +470,4 @@ function formatTs(sec: number): string {
   return `${m}:${s}`;
 }
 
-function QuoteLink({
-  quote,
-  onQuote,
-}: {
-  quote: string | null;
-  onQuote: (q: string | null) => void;
-}) {
-  if (!quote) return null;
-  return (
-    <button
-      type="button"
-      onClick={() => onQuote(quote)}
-      className="mt-1 block text-left text-xs text-brand hover:underline"
-      title="Jump to this in the transcript"
-    >
-      “{quote.length > 90 ? `${quote.slice(0, 90)}…` : quote}”
-    </button>
-  );
-}
 
-const PRIORITY: Record<string, string> = {
-  high: "bg-red-50 text-red-700",
-  medium: "bg-amber-50 text-amber-700",
-  low: "bg-neutral-100 text-neutral-600",
-};
-
-function Insights({
-  data,
-  onQuote,
-}: {
-  data: MeetingInsights;
-  onQuote: (q: string | null) => void;
-}) {
-  return (
-    <div className="space-y-10">
-      <section>
-        <p className="text-lg font-medium leading-relaxed text-ink">
-          {data.tldr}
-        </p>
-      </section>
-
-      <Section title="Executive summary">
-        <p className="text-sm leading-relaxed text-ink-soft">
-          {data.executiveSummary}
-        </p>
-      </Section>
-
-      {data.keyPoints.length > 0 && (
-        <Section title="Key points">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-ink-soft">
-            {data.keyPoints.map((p, i) => (
-              <li key={i}>{p}</li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      {data.actionItems.length > 0 && (
-        <Section title="Action items">
-          <ul className="space-y-3">
-            {data.actionItems.map((a, i) => (
-              <li key={i} className="rounded-lg border border-brand-light/60 bg-white p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-ink">{a.task}</p>
-                  {a.priority && (
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                        PRIORITY[a.priority] ?? ""
-                      }`}
-                    >
-                      {a.priority}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-xs text-ink-soft/70">
-                  {a.owner ? `Owner: ${a.owner}` : "Owner: —"}
-                  {a.dueDate ? ` · Due: ${a.dueDate}` : ""}
-                </p>
-                <QuoteLink quote={a.sourceQuote} onQuote={onQuote} />
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      {data.decisions.length > 0 && (
-        <Section title="Decisions">
-          <ul className="space-y-3">
-            {data.decisions.map((d, i) => (
-              <li key={i} className="rounded-lg border border-brand-light/60 bg-white p-3">
-                <p className="text-sm font-medium text-ink">{d.decision}</p>
-                {d.rationale && (
-                  <p className="mt-1 text-xs text-ink-soft/70">Why: {d.rationale}</p>
-                )}
-                <QuoteLink quote={d.sourceQuote} onQuote={onQuote} />
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      {data.topics.length > 0 && (
-        <Section title="Topics">
-          <ul className="space-y-2">
-            {data.topics.map((t, i) => (
-              <li key={i}>
-                <p className="text-sm font-medium text-ink">{t.title}</p>
-                <p className="text-sm text-ink-soft">{t.summary}</p>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-soft/60">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}

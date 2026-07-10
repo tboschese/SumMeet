@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { SettingsView } from "@summeet/core/schemas";
 import { AUTO_DETECT, LANGUAGES, MATCH_MEETING } from "@summeet/core/languages";
+import { SECTIONS, type SectionKey } from "@summeet/core/sections";
 import {
   getLocalStatus,
   getSettings,
@@ -58,6 +59,109 @@ function LocalHint({ status }: { status: LocalStatus | null }) {
     <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
       Local engine not ready yet. Missing: {missing.join(", ")}.
     </p>
+  );
+}
+
+
+/**
+ * Locked-down summary composer (SPEC A5): tick the sections you want and order
+ * them. No free text, so the Insight contract can't be prompted out of shape.
+ * Selected sections are listed first, in their order, with move controls.
+ */
+function SectionPicker({
+  selected,
+  onChange,
+}: {
+  selected: SectionKey[];
+  onChange: (next: SectionKey[]) => void;
+}) {
+  const unselected = SECTIONS.filter((s) => !selected.includes(s.key));
+
+  const move = (index: number, delta: number) => {
+    const next = [...selected];
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-3">
+      <ol className="space-y-2">
+        {selected.map((key, i) => {
+          const spec = SECTIONS.find((s) => s.key === key)!;
+          return (
+            <li
+              key={key}
+              className="flex items-start gap-2 rounded-md border border-brand-light bg-brand-tint/40 p-2.5"
+            >
+              <span className="mt-0.5 w-5 text-center text-xs font-semibold text-brand">
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-ink">
+                  {spec.label}
+                  {spec.derivedFrom && (
+                    <span className="ml-2 rounded bg-white px-1.5 py-0.5 text-[10px] font-normal text-brand">
+                      free — derived
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-ink-soft/70">{spec.hint}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => move(i, -1)}
+                  disabled={i === 0}
+                  title="Move up"
+                  className="rounded px-1.5 py-0.5 text-sm text-brand hover:bg-white disabled:opacity-30"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => move(i, 1)}
+                  disabled={i === selected.length - 1}
+                  title="Move down"
+                  className="rounded px-1.5 py-0.5 text-sm text-brand hover:bg-white disabled:opacity-30"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChange(selected.filter((k) => k !== key))}
+                  disabled={selected.length === 1}
+                  title={selected.length === 1 ? "Keep at least one section" : "Remove"}
+                  className="rounded px-1.5 py-0.5 text-sm text-ink-soft/60 hover:text-red-600 disabled:opacity-30"
+                >
+                  ✕
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      {unselected.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-ink-soft/70">Add a section</p>
+          <div className="flex flex-wrap gap-1.5">
+            {unselected.map((spec) => (
+              <button
+                key={spec.key}
+                type="button"
+                onClick={() => onChange([...selected, spec.key])}
+                title={spec.hint}
+                className="rounded-md border border-brand-light px-2.5 py-1 text-xs text-brand hover:bg-brand-tint"
+              >
+                + {spec.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -258,6 +362,22 @@ export default function SettingsPage() {
                 ))}
               </select>
             </Field>
+          </section>
+
+          {/* ── Summary shape ───────────────────────────────────────────── */}
+          <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Summary sections</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">
+                Pick what the decision record contains and in what order. Sections
+                you leave out aren&apos;t generated at all, so a leaner summary is
+                also a cheaper one.
+              </p>
+            </div>
+            <SectionPicker
+              selected={settings.summarySections}
+              onChange={(next) => update({ ...settings, summarySections: next })}
+            />
           </section>
 
           {/* ── Cloud API key ───────────────────────────────────────────── */}

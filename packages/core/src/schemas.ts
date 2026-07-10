@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SectionSchema } from "./sections.js";
 
 // ── Meeting status (source of truth; SQLite stores this as a String) ──────────
 // TRANSCRIBED is a deliberate resting state, not a failure: when auto-extract is
@@ -39,6 +40,8 @@ export const SettingsSchema = z.object({
    * whether the transcript goes to a cloud model).
    */
   autoExtract: z.boolean(),
+  /** Which sections the summary contains, in order (SPEC A5). */
+  summarySections: z.array(SectionSchema).min(1),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -104,13 +107,45 @@ export const TopicSchema = z.object({
 });
 export type Topic = z.infer<typeof TopicSchema>;
 
+// ── Enrichment sections (SPEC A5) ────────────────────────────────────────────
+export const RiskSchema = z.object({
+  risk: z.string(), // the risk or blocker, stated plainly
+  severity: z.enum(["high", "medium", "low"]).nullable(),
+  sourceQuote: z.string().nullable(),
+});
+export type Risk = z.infer<typeof RiskSchema>;
+
+export const OpenQuestionSchema = z.object({
+  question: z.string(), // raised but left unanswered
+  askedBy: z.string().nullable(),
+  sourceQuote: z.string().nullable(),
+});
+export type OpenQuestion = z.infer<typeof OpenQuestionSchema>;
+
+export const MetricSchema = z.object({
+  label: z.string(), // what the number measures
+  value: z.string(), // as stated ("40%", "R$ 2M", "3 weeks")
+  sourceQuote: z.string().nullable(),
+});
+export type Metric = z.infer<typeof MetricSchema>;
+
+/**
+ * Every field carries a default so a section the user didn't ask for can simply
+ * be omitted by the model (cheaper prompt AND cheaper output), and so insights
+ * persisted before a field existed still parse. `language` stays required — it
+ * isn't a section.
+ */
 export const MeetingInsightsSchema = z.object({
-  tldr: z.string(), // one to two sentences, the "if you read nothing else"
-  executiveSummary: z.string(), // one paragraph
-  keyPoints: z.array(z.string()), // 3–7 bullets
-  actionItems: z.array(ActionItemSchema),
-  decisions: z.array(DecisionSchema),
-  topics: z.array(TopicSchema),
+  tldr: z.string().default(""), // one to two sentences, the "if you read nothing else"
+  executiveSummary: z.string().default(""), // one paragraph
+  keyPoints: z.array(z.string()).default([]), // 3–7 bullets
+  actionItems: z.array(ActionItemSchema).default([]),
+  decisions: z.array(DecisionSchema).default([]),
+  topics: z.array(TopicSchema).default([]),
+  risks: z.array(RiskSchema).default([]),
+  openQuestions: z.array(OpenQuestionSchema).default([]),
+  nextSteps: z.array(z.string()).default([]),
+  metrics: z.array(MetricSchema).default([]),
   language: z.string(), // detected, ISO 639-1 (e.g. "pt", "en")
 });
 export type MeetingInsights = z.infer<typeof MeetingInsightsSchema>;
