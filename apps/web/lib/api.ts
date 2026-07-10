@@ -5,7 +5,8 @@
 import type {
   MeetingInsights,
   MeetingStatus,
-  Settings,
+  SettingsUpdate,
+  SettingsView,
   TranscriptSegment,
 } from "@summeet/core/schemas";
 
@@ -101,18 +102,25 @@ export function reextractMeeting(id: string): Promise<{ ok: true }> {
 }
 
 // ── Settings (stored server-side, so the Chrome extension inherits them) ──────
-export function getSettings(): Promise<Settings> {
+// The API never returns the API key, only whether one is configured.
+export function getSettings(): Promise<SettingsView> {
   return fetch(`${API_BASE}/api/settings`, { cache: "no-store" }).then(
-    json<Settings>,
+    json<SettingsView>,
   );
 }
 
-export function saveSettings(settings: Settings): Promise<Settings> {
+export function saveSettings(settings: SettingsUpdate): Promise<SettingsView> {
   return fetch(`${API_BASE}/api/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
-  }).then(json<Settings>);
+  }).then(json<SettingsView>);
+}
+
+/** Strip the read-only flag before sending an update back. */
+export function toUpdate(v: SettingsView): SettingsUpdate {
+  const { hasGroqApiKey: _ignored, ...rest } = v;
+  return rest;
 }
 
 export interface LocalStatus {

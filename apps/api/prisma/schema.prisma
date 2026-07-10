@@ -20,6 +20,9 @@ model Settings {
   transcriptionEngine   String   @default("cloud") // "cloud" (Groq) | "local" (whisper.cpp)
   extractionEngine      String   @default("cloud") // "cloud" (Groq) | "local" (Ollama)
   glossary              String   @default("") // names/products/jargon; biases both stages
+  // Cloud API key set from the UI (desktop/mobile have no .env). Server-side
+  // only — never returned by the API, never sent to a browser. Falls back to env.
+  groqApiKey            String   @default("")
   updatedAt             DateTime @updatedAt
 }
 

@@ -6,12 +6,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Settings } from "@summeet/core/schemas";
+import type { SettingsView } from "@summeet/core/schemas";
 import { AUTO_DETECT, LANGUAGES, MATCH_MEETING } from "@summeet/core/languages";
 import {
   getLocalStatus,
   getSettings,
   saveSettings,
+  toUpdate,
   type LocalStatus,
 } from "@/lib/api";
 
@@ -61,7 +62,8 @@ function LocalHint({ status }: { status: LocalStatus | null }) {
 }
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settings, setSettings] = useState<SettingsView | null>(null);
+  const [keyInput, setKeyInput] = useState("");
   const [local, setLocal] = useState<LocalStatus | null>(null);
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -75,12 +77,13 @@ export default function SettingsPage() {
     getLocalStatus().then(setLocal).catch(() => setLocal(null));
   }, []);
 
-  const update = useCallback(async (next: Settings) => {
+  // Omits groqApiKey, so ordinary edits never touch the stored key.
+  const update = useCallback(async (next: SettingsView) => {
     setSettings(next);
     setStatus("saving");
     setError(null);
     try {
-      await saveSettings(next);
+      setSettings(await saveSettings(toUpdate(next)));
       setStatus("saved");
       setTimeout(() => setStatus("idle"), 1500);
     } catch (e) {
@@ -88,6 +91,25 @@ export default function SettingsPage() {
       setStatus("idle");
     }
   }, []);
+
+  /** Write-only: send a value to set it, "" to clear it. */
+  const saveKey = useCallback(
+    async (value: string) => {
+      if (!settings) return;
+      setStatus("saving");
+      setError(null);
+      try {
+        setSettings(await saveSettings({ ...toUpdate(settings), groqApiKey: value }));
+        setKeyInput("");
+        setStatus("saved");
+        setTimeout(() => setStatus("idle"), 1500);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not save the key.");
+        setStatus("idle");
+      }
+    },
+    [settings],
+  );
 
   return (
     <main className="mx-auto min-h-screen max-w-2xl px-6 py-12">
@@ -136,7 +158,7 @@ export default function SettingsPage() {
                 onChange={(e) =>
                   update({
                     ...settings,
-                    transcriptionEngine: e.target.value as Settings["transcriptionEngine"],
+                    transcriptionEngine: e.target.value as SettingsView["transcriptionEngine"],
                   })
                 }
               >
@@ -158,7 +180,7 @@ export default function SettingsPage() {
                 onChange={(e) =>
                   update({
                     ...settings,
-                    extractionEngine: e.target.value as Settings["extractionEngine"],
+                    extractionEngine: e.target.value as SettingsView["extractionEngine"],
                   })
                 }
               >
@@ -214,6 +236,50 @@ export default function SettingsPage() {
                 ))}
               </select>
             </Field>
+          </section>
+
+          {/* ── Cloud API key ───────────────────────────────────────────── */}
+          <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Cloud API key (Groq)</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">
+                Needed only for the cloud engine. Stored server-side and never
+                sent back to the browser. Falls back to <code>GROQ_API_KEY</code>{" "}
+                in <code>.env</code> when unset.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                autoComplete="off"
+                className="flex-1 rounded-md border border-brand-light bg-white px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none"
+                placeholder={settings.hasGroqApiKey ? "•••••••• (configured)" : "gsk_…"}
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={!keyInput.trim()}
+                onClick={() => saveKey(keyInput.trim())}
+                className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+              >
+                Save key
+              </button>
+              {settings.hasGroqApiKey && (
+                <button
+                  type="button"
+                  onClick={() => saveKey("")}
+                  className="rounded-md border border-neutral-300 px-3 py-2 text-sm text-ink-soft hover:border-red-300 hover:text-red-700"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-ink-soft/60">
+              {settings.hasGroqApiKey
+                ? "A key is configured. Cloud engines are available."
+                : "No key configured — cloud engines will fail. Use the local engine to run free and offline."}
+            </p>
           </section>
 
           {/* ── Glossary ────────────────────────────────────────────────── */}

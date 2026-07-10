@@ -12,7 +12,7 @@ import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
 import { db } from "../db.js";
 import type { Queue } from "../queue.js";
-import { getSettings, glossary, outputLanguage } from "../settings.js";
+import { getSecrets, getSettings, glossary, outputLanguage } from "../settings.js";
 
 function defaultTitle(filename?: string): string {
   if (filename) {
@@ -189,7 +189,7 @@ export function registerMeetingRoutes(
       }
       try {
         const settings = await getSettings();
-        const { llm } = ctx.resolve(settings);
+        const { llm } = ctx.resolve(settings, await getSecrets());
         const { insights, rawOutput, provider } = await extractInsights(
           meeting.transcript.fullText,
           llm,

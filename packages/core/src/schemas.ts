@@ -31,6 +31,24 @@ export const SettingsSchema = z.object({
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
+/**
+ * What the API returns. The API key itself is NEVER serialized — only whether
+ * one is configured — so it can't leak to a browser (hard rule §7.2).
+ */
+export const SettingsViewSchema = SettingsSchema.extend({
+  hasGroqApiKey: z.boolean(),
+});
+export type SettingsView = z.infer<typeof SettingsViewSchema>;
+
+/**
+ * What the API accepts. `groqApiKey` is write-only: omit to leave it untouched,
+ * pass "" to clear it, pass a value to replace it.
+ */
+export const SettingsUpdateSchema = SettingsSchema.extend({
+  groqApiKey: z.string().optional(),
+});
+export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
+
 // ── Transcript segments (stored as a JSON String; §8) ─────────────────────────
 export const TranscriptSegmentSchema = z.object({
   start: z.number(), // seconds, absolute in the recording's timeline

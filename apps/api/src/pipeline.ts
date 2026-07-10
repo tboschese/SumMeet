@@ -9,7 +9,13 @@ import {
 } from "@summeet/core";
 import type { PipelineContext } from "./context.js";
 import { db } from "./db.js";
-import { getSettings, glossary, outputLanguage, transcriptionHint } from "./settings.js";
+import {
+  getSecrets,
+  getSettings,
+  glossary,
+  outputLanguage,
+  transcriptionHint,
+} from "./settings.js";
 
 /**
  * The worker pipeline (SPEC §7.3), fail-soft (CLAUDE.md hard rule #7): read
@@ -29,7 +35,8 @@ export async function runPipeline(
     if (!meeting.audioKey) throw new Error("meeting has no audio");
 
     const settings = await getSettings();
-    const { transcription: transcriber, llm } = ctx.resolve(settings);
+    const secrets = await getSecrets();
+    const { transcription: transcriber, llm } = ctx.resolve(settings, secrets);
 
     // 1. Read audio from storage → a temp file for ffmpeg.
     const buf = await ctx.storage.get(meeting.audioKey);

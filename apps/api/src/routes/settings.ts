@@ -2,11 +2,11 @@ import {
   AUTO_DETECT,
   isKnownLanguage,
   MATCH_MEETING,
-  SettingsSchema,
+  SettingsUpdateSchema,
 } from "@summeet/core";
 import type { FastifyInstance } from "fastify";
 import { getLocalStatus } from "../local-status.js";
-import { getSettings, saveSettings } from "../settings.js";
+import { getSettingsView, saveSettings } from "../settings.js";
 
 /** "auto"/"match" sentinels, or a language we actually offer. */
 function validate(
@@ -23,13 +23,14 @@ function validate(
 }
 
 export function registerSettingsRoutes(app: FastifyInstance): void {
-  app.get("/api/settings", async () => getSettings());
+  // Returns hasGroqApiKey, never the key itself.
+  app.get("/api/settings", async () => getSettingsView());
 
   // Is the free/offline engine actually installed and ready?
   app.get("/api/settings/local-status", async () => getLocalStatus());
 
   app.put("/api/settings", async (request, reply) => {
-    const parsed = SettingsSchema.safeParse(request.body);
+    const parsed = SettingsUpdateSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid settings payload" });
     }
@@ -37,6 +38,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     const problem = validate(transcriptionLanguage, outputLanguage);
     if (problem) return reply.code(400).send({ error: problem });
 
+    // groqApiKey is write-only: omitted = unchanged, "" = cleared.
     return saveSettings(parsed.data);
   });
 }

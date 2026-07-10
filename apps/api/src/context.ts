@@ -29,37 +29,40 @@ export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b";
  */
 export interface PipelineContext {
   storage: StorageProvider;
-  resolve(settings: Settings): {
+  /** Secrets are passed in, never read from the environment here (SPEC A0). */
+  resolve(
+    settings: Settings,
+    secrets: { groqApiKey?: string },
+  ): {
     transcription: TranscriptionProvider;
     llm: LlmProvider;
   };
 }
 
-function requireGroqKey(): string {
-  const key = process.env.GROQ_API_KEY;
-  if (!key || key === "...") {
+function requireGroqKey(secrets: { groqApiKey?: string }): string {
+  if (!secrets.groqApiKey) {
     throw new Error(
-      "GROQ_API_KEY is not set in .env — required for the cloud engine. " +
-        "Switch to the local engine in Settings to run offline.",
+      "No Groq API key configured — required for the cloud engine. " +
+        "Add one in Settings, or switch that stage to the local engine to run offline.",
     );
   }
-  return key;
+  return secrets.groqApiKey;
 }
 
 export function buildContext(): PipelineContext {
   return {
     storage: new LocalStorageProvider(AUDIO_DIR),
 
-    resolve(settings) {
+    resolve(settings, secrets) {
       const transcription: TranscriptionProvider =
         settings.transcriptionEngine === "local"
           ? new LocalWhisperProvider(WHISPER_MODEL_PATH, WHISPER_BIN)
-          : new GroqWhisperProvider(requireGroqKey());
+          : new GroqWhisperProvider(requireGroqKey(secrets));
 
       const llm: LlmProvider =
         settings.extractionEngine === "local"
           ? new OllamaProvider(OLLAMA_MODEL, OLLAMA_BASE_URL)
-          : new GroqLlamaProvider(requireGroqKey());
+          : new GroqLlamaProvider(requireGroqKey(secrets));
 
       return { transcription, llm };
     },
