@@ -62,14 +62,20 @@ export function getMeeting(id: string): Promise<MeetingDetail> {
 
 type CreateResult = { id: string; status: MeetingStatus };
 
+/**
+ * `channelLayout` tells the server this audio really is left=others / right=you.
+ * Only pass it for recordings our recorder made — never for user file uploads.
+ */
 export function createMeeting(
   audio: Blob,
   title?: string,
   filename = "recording.webm",
+  channelLayout?: string,
 ): Promise<CreateResult> {
   const form = new FormData();
   form.append("audio", audio, filename);
   if (title) form.append("title", title);
+  if (channelLayout) form.append("channelLayout", channelLayout);
   return fetch(`${API_BASE}/api/meetings`, { method: "POST", body: form }).then(
     json<CreateResult>,
   );

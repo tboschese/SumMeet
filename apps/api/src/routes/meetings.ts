@@ -3,8 +3,10 @@ import { stat } from "node:fs/promises";
 import {
   ACCEPTED_AUDIO_HINT,
   isAcceptedAudio,
+  isSummeetStereoLayout,
   parseInsights,
   parseSegments,
+  SUMMEET_STEREO_LAYOUT,
 } from "@summeet/core";
 import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
@@ -31,6 +33,8 @@ export function registerMeetingRoutes(
     let audio: Buffer | undefined;
     let filename: string | undefined;
     let contentType = "audio/webm";
+    // Only our own recorders may claim the stereo layout; a plain upload can't.
+    let channelLayout: string | null = null;
 
     let tooLarge = false;
     try {
@@ -49,6 +53,9 @@ export function registerMeetingRoutes(
           if (part.file.truncated) tooLarge = true;
         } else if (part.type === "field" && part.fieldname === "title") {
           title = String(part.value);
+        } else if (part.type === "field" && part.fieldname === "channelLayout") {
+          const claimed = String(part.value);
+          channelLayout = isSummeetStereoLayout(claimed) ? SUMMEET_STEREO_LAYOUT : null;
         }
       }
     } catch (err) {
@@ -66,7 +73,11 @@ export function registerMeetingRoutes(
     }
 
     const meeting = await db.meeting.create({
-      data: { title: title?.trim() || defaultTitle(filename), status: "UPLOADED" },
+      data: {
+        title: title?.trim() || defaultTitle(filename),
+        status: "UPLOADED",
+        channelLayout,
+      },
     });
     const audioKey = `${meeting.id}.webm`;
     await ctx.storage.put(audioKey, audio, contentType);

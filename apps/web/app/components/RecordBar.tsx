@@ -5,6 +5,7 @@ import {
   ACCEPTED_AUDIO_HINT,
   isAcceptedAudio,
   MAX_UPLOAD_BYTES,
+  SUMMEET_STEREO_LAYOUT,
 } from "@summeet/core/media";
 import { createMeeting } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -22,11 +23,11 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const upload = useCallback(
-    async (blob: Blob, filename: string, title?: string) => {
+    async (blob: Blob, filename: string, title?: string, channelLayout?: string) => {
       setMode("uploading");
       setError(null);
       try {
-        await createMeeting(blob, title, filename);
+        await createMeeting(blob, title, filename, channelLayout);
         onCreated();
       } catch (e) {
         setError(e instanceof Error ? e.message : t("rec.uploadFailed"));
@@ -43,10 +44,12 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
     const rec = new MeetingRecorder({
       onTick: setElapsed,
       onStop: (blob) => {
+        // Our recorder wrote the stereo layout, so it may declare it.
         void upload(
           blob,
           "recording.webm",
           `Recording ${new Date().toLocaleString()}`,
+          SUMMEET_STEREO_LAYOUT,
         );
       },
       onError: (e) => {

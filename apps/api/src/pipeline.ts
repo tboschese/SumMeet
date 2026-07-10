@@ -5,6 +5,7 @@ import {
   assignSpeakers,
   extractInsights,
   formatTranscriptForPrompt,
+  isSummeetStereoLayout,
   parseSegments,
   stringifyInsights,
   stringifySegments,
@@ -144,9 +145,14 @@ export async function runPipeline(
     });
 
     // Who spoke, straight from the stereo channels (left = others, right = you).
-    // Free: no model, no extra API call — just an ffmpeg energy pass. Mono
-    // uploads come back unlabelled.
-    const segments = await assignSpeakers(audioPath, transcript.segments);
+    // Free: no model, no extra API call — just an ffmpeg energy pass.
+    //
+    // Only for audio a SumMeet recorder declared it wrote: a stereo file alone
+    // carries no such meaning, and guessing would attribute a stranger's
+    // commitment to "You" on any panned upload. Undeclared audio stays unlabelled.
+    const segments = isSummeetStereoLayout(meeting.channelLayout)
+      ? await assignSpeakers(audioPath, transcript.segments)
+      : transcript.segments;
 
     const durationSec =
       segments.length > 0 ? Math.round(segments[segments.length - 1]!.end) : null;

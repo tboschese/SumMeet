@@ -38,6 +38,20 @@ export const ACCEPTED_AUDIO_HINT = ACCEPTED_AUDIO_EXTENSIONS.join(", ");
  * Stereo layout the recorders write, and the pipeline reads back to tell who
  * spoke without any diarization model (see SpeakerSchema). Native capture apps
  * must write the same layout.
+ *
+ * The channels are two TRACKS, not a spatial mix: left carries everyone else,
+ * right carries you. Nothing about a stereo file says that, though — an arbitrary
+ * stereo upload (a panned podcast, an exported Zoom recording) would otherwise be
+ * mis-labelled, attributing a stranger's commitment to "You". So a client must
+ * DECLARE that it wrote this layout; absent the declaration the pipeline refuses
+ * to guess and leaves the transcript unattributed.
  */
-export const CHANNEL_OTHERS = 0; // left  = tab audio (other participants)
+export const CHANNEL_OTHERS = 0; // left  = system/tab audio (other participants)
 export const CHANNEL_SELF = 1; // right = microphone (you)
+
+/** Sent by our recorders on upload; bump the suffix if the layout ever changes. */
+export const SUMMEET_STEREO_LAYOUT = "summeet-stereo-v1";
+
+export function isSummeetStereoLayout(value: string | null | undefined): boolean {
+  return value === SUMMEET_STEREO_LAYOUT;
+}

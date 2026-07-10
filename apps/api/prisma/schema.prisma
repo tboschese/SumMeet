@@ -44,6 +44,7 @@ model Meeting {
   title       String
   status      String      @default("UPLOADED") // MeetingStatus (Zod enum, §8.1)
   audioKey    String? // storage key, e.g. "{id}.webm"
+  channelLayout String? // e.g. "summeet-stereo-v1"; null = unknown, do not diarize
   durationSec Int?
   language    String?
   error       String? // failure reason when status = FAILED
