@@ -65,7 +65,15 @@ PLIST
 
 cp "$HERE/src-tauri/target/$PROFILE/summeet-desktop" "$APP/Contents/MacOS/"
 cp "$ROOT/apps/macos/recorder/build/recorder" "$APP/Contents/MacOS/recorder"
-cp "$HERE/src-tauri/icons/icon.png" "$APP/Contents/Resources/icon.png" 2>/dev/null || true
+
+# The Dock reads .icns and nothing else — a PNG in Resources is silently ignored and
+# you get the generic app icon instead. icons.py draws both this and the menu-bar
+# template; regenerate if it is missing.
+if [ ! -f "$HERE/src-tauri/icons/icon.icns" ]; then
+  echo "→ drawing icons"
+  python3 "$HERE/icons.py" >/dev/null
+fi
+cp "$HERE/src-tauri/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
 
 echo "→ signing (ad-hoc, with the bundle's Info.plist)"
 # A stable identifier, not the default hash-of-the-path one: TCC keys its grant on
@@ -87,6 +95,12 @@ if [ "${SUMMEET_KEEP_TCC:-0}" != "1" ]; then
     done
   done
 fi
+
+# The Dock caches an app's icon by path. A rebuilt bundle keeps the old picture until
+# its mtime changes and the Dock is restarted — which looks exactly like the icon
+# never having been updated.
+touch "$APP"
+killall Dock 2>/dev/null || true
 
 echo "✓ $APP"
 echo "  open with:  open \"$APP\""
