@@ -40,6 +40,7 @@ Monorepo: pnpm workspaces — `packages/core`, `apps/api`, `apps/web`.
 
 - TypeScript **strict** everywhere. Zod is the single source of truth for shapes (`packages/core/src/schemas.ts`), shared by web and api.
 - Status flow: `UPLOADED → TRANSCRIBING → EXTRACTING → COMPLETED` (or `FAILED`).
+  With `autoExtract` off it rests at `TRANSCRIBED`; insights are then generated on demand.
 - **Prove each layer in isolation** (a CLI or test) before wiring it into the pipeline.
 - Small, focused commits per logical step. Prefer editing existing files over adding new ones; keep files single-purpose.
 - No secrets in code or commits. `.env` and `./data/` are git-ignored.

@@ -170,6 +170,28 @@ export default function SettingsPage() {
               </select>
             </Field>
 
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-brand-light/60 p-3">
+              <input
+                type="checkbox"
+                checked={settings.autoExtract}
+                onChange={(e) =>
+                  update({ ...settings, autoExtract: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 accent-[#4F42E0]"
+              />
+              <span>
+                <span className="block text-sm font-medium text-ink">
+                  Generate insights automatically
+                </span>
+                <span className="mt-0.5 block text-xs text-ink-soft/70">
+                  Off = stop after transcription and wait. A cheap local Whisper
+                  can then run on every meeting, while the insights engine (cloud,
+                  or a heavy local model) runs only when you ask — and you decide
+                  per meeting whether that transcript goes to the cloud.
+                </span>
+              </span>
+            </label>
+
             <Field
               label="Insights engine"
               hint="Turns the transcript into the decision record."

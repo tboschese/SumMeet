@@ -320,6 +320,28 @@ export default function MeetingDetailPage() {
         </div>
       )}
 
+      {/* Transcript exists, insights don't: the deliberate TRANSCRIBED state. */}
+      {!insights && transcript && !processing && meeting.status !== "FAILED" && (
+        <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
+          <p className="text-sm font-medium text-amber-900">
+            Transcript ready — insights not generated yet
+          </p>
+          <p className="mt-1 text-xs text-amber-800">
+            Auto-extract is off, so nothing was sent to the insights engine.
+            Generate the decision record when you want; it uses the engine you
+            picked in Settings.
+          </p>
+          <button
+            type="button"
+            onClick={onReextract}
+            disabled={reextracting}
+            className="mt-3 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
+          >
+            {reextracting ? "Generating…" : "Generate insights"}
+          </button>
+        </div>
+      )}
+
       {insights && <Insights data={insights.data} onQuote={scrollToQuote} />}
 
       {transcript && (

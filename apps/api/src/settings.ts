@@ -31,6 +31,7 @@ export async function getSettings(): Promise<Settings> {
     transcriptionEngine: r.transcriptionEngine as Settings["transcriptionEngine"],
     extractionEngine: r.extractionEngine as Settings["extractionEngine"],
     glossary: r.glossary,
+    autoExtract: r.autoExtract,
   };
 }
 

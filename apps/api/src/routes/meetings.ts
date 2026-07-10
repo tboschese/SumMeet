@@ -201,9 +201,10 @@ export function registerMeetingRoutes(
           create: { meetingId: meeting.id, data, rawOutput, provider },
           update: { data, rawOutput, provider },
         });
+        // Promotes a TRANSCRIBED meeting to COMPLETED; a no-op for one already there.
         await db.meeting.update({
           where: { id: meeting.id },
-          data: { language: insights.language },
+          data: { status: "COMPLETED", language: insights.language, error: null },
         });
         return { ok: true };
       } catch (err) {

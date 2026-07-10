@@ -18,10 +18,25 @@ import {
 } from "./settings.js";
 
 /**
+ * Delete the recording once the transcript exists — the product is the insights
+ * + transcript, and nothing sensitive should linger on disk.
+ */
+async function discardAudio(
+  ctx: PipelineContext,
+  meetingId: string,
+  audioKey: string | null,
+): Promise<void> {
+  if (!audioKey) return;
+  await ctx.storage.delete(audioKey).catch(() => {});
+  await db.meeting.update({ where: { id: meetingId }, data: { audioKey: null } });
+}
+
+/**
  * The worker pipeline (SPEC §7.3), fail-soft (CLAUDE.md hard rule #7): read
  * audio → transcribe → extract → persist, driving status
- * TRANSCRIBING → EXTRACTING → COMPLETED. Any error sets FAILED + a
- * human-readable reason; it never throws out of here.
+ * TRANSCRIBING → EXTRACTING → COMPLETED — or stopping at TRANSCRIBED when
+ * auto-extract is off. Any error sets FAILED + a human-readable reason; it
+ * never throws out of here.
  */
 export async function runPipeline(
   meetingId: string,
@@ -75,6 +90,20 @@ export async function runPipeline(
       },
     });
 
+    // The recording has served its purpose — the transcript is the artifact.
+    await discardAudio(ctx, meetingId, meeting.audioKey);
+
+    // 2b. Stop here when the user wants to decide later whether — and with which
+    // engine — to spend on insights. A resting state, not a failure.
+    if (!settings.autoExtract) {
+      await db.meeting.update({
+        where: { id: meetingId },
+        data: { status: "TRANSCRIBED", durationSec, error: null },
+      });
+      log?.(`pipeline ${meetingId}: TRANSCRIBED (auto-extract off)`);
+      return;
+    }
+
     // 3. Extract insights (parse/validate/repair inside extractInsights).
     await db.meeting.update({
       where: { id: meetingId },
@@ -107,16 +136,6 @@ export async function runPipeline(
       where: { id: meetingId },
       data: { status: "COMPLETED", language: insights.language, error: null },
     });
-
-    // Discard the recording — the product is the insights + transcript, not the
-    // audio. Keeps nothing sensitive on disk once processing succeeds.
-    if (meeting.audioKey) {
-      await ctx.storage.delete(meeting.audioKey).catch(() => {});
-      await db.meeting.update({
-        where: { id: meetingId },
-        data: { audioKey: null },
-      });
-    }
     log?.(`pipeline ${meetingId}: COMPLETED`);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

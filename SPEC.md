@@ -334,10 +334,17 @@ model Insights {
 ```typescript
 // packages/core/src/schemas.ts
 export const MeetingStatus = z.enum([
-  "UPLOADED", "TRANSCRIBING", "EXTRACTING", "COMPLETED", "FAILED",
+  "UPLOADED", "TRANSCRIBING", "TRANSCRIBED", "EXTRACTING", "COMPLETED", "FAILED",
 ]);
 export type MeetingStatus = z.infer<typeof MeetingStatus>;
 ```
+
+**`TRANSCRIBED` is a resting state, not a failure.** With `autoExtract` off the
+pipeline stops once the transcript is persisted (and the audio is discarded), and
+insights are generated on demand via `POST /api/meetings/:id/reextract`. This
+decouples a cheap, always-on local Whisper from the expensive stage: the LLM —
+cloud or a heavy local model — runs only when the user asks, and they decide per
+meeting whether that transcript leaves the machine.
 
 Always `JSON.parse` + Zod-validate `segments` and `data` on read, and `JSON.stringify` on write. Wrap this in tiny helpers so the app never touches raw strings. Migrating to Postgres later means: change the provider, restore the real `enum`, and switch these fields to `Json` — a mechanical change.
 

@@ -1,9 +1,14 @@
 import { z } from "zod";
 
 // ── Meeting status (source of truth; SQLite stores this as a String) ──────────
+// TRANSCRIBED is a deliberate resting state, not a failure: when auto-extract is
+// off, the pipeline stops after transcription and waits for the user to ask for
+// insights. Lets a cheap local Whisper run always, while the LLM (cloud or a
+// heavy local model) runs only on demand.
 export const MeetingStatus = z.enum([
   "UPLOADED",
   "TRANSCRIBING",
+  "TRANSCRIBED",
   "EXTRACTING",
   "COMPLETED",
   "FAILED",
@@ -28,6 +33,12 @@ export const SettingsSchema = z.object({
   extractionEngine: EngineSchema,
   /** Names, products and jargon — biases transcription and extraction (SPEC A6). */
   glossary: z.string().max(4000),
+  /**
+   * Run extraction automatically after transcription. Turn it off to decouple
+   * the two: transcribe cheaply now, generate insights later (and decide then
+   * whether the transcript goes to a cloud model).
+   */
+  autoExtract: z.boolean(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
