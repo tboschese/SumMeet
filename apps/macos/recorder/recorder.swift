@@ -374,8 +374,6 @@ func requireScreenRecording() {
         plane is 2x2 pixels and thrown away).
         Enable SumMeet in System Settings → Privacy & Security → Screen & System
         Audio Recording, then reopen the app.
-        Note: rebuilding the app invalidates the grant (ad-hoc signatures are keyed
-        by binary hash); remove the stale SumMeet entry and add the new one.
         """)
     out("SCREEN_DENIED=1")
     exit(8)

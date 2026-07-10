@@ -75,20 +75,35 @@ if [ ! -f "$HERE/src-tauri/icons/icon.icns" ]; then
 fi
 cp "$HERE/src-tauri/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
 
-echo "→ signing (ad-hoc, with the bundle's Info.plist)"
-# A stable identifier, not the default hash-of-the-path one: TCC keys its grant on
-# it, so an unstable identifier means the microphone permission silently resets on
-# every rebuild.
-codesign --force --sign - --identifier com.summeet.recorder "$APP/Contents/MacOS/recorder"
-codesign --force --sign - --identifier com.summeet.app "$APP"
+# Sign with a stable identity when one exists, so TCC grants survive rebuilds.
+#
+# An ad-hoc signature pins the grant to the binary's cdhash, which changes on every
+# build: the user re-approves Screen Recording and the microphone every single time,
+# while System Settings still shows a ticked "SumMeet" that no longer matches. A
+# self-signed certificate makes the code requirement key on the *certificate* instead
+# of the hash, so the grant sticks. Create it once with apps/desktop/setup-signing.sh.
+IDENTITY="SumMeet Dev"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
+  echo "→ signing with '$IDENTITY' (grants survive rebuilds)"
+  SIGN=(--sign "$IDENTITY")
+  STABLE=1
+else
+  echo "→ signing ad-hoc — run apps/desktop/setup-signing.sh so permissions stop resetting"
+  SIGN=(--sign -)
+  STABLE=0
+fi
 
-# TCC pins an ad-hoc signature to the binary's cdhash, so a rebuilt app is a
-# *different* app to the permission system while still showing the old, matching
-# name in System Settings. The user then sees "SumMeet" ticked and gets prompted
-# anyway, and no grant ever sticks. Clear our own stale entries so the next launch
-# asks once, cleanly. Scoped to our bundle ids; nothing else is touched.
-if [ "${SUMMEET_KEEP_TCC:-0}" != "1" ]; then
-  echo "→ clearing stale TCC entries for com.summeet.* (ad-hoc signatures are cdhash-pinned)"
+# The recorder shares the app's identity so it is one subject to TCC, not two: as its
+# own signed identifier it needed its own Screen Recording grant, a second entry to
+# approve. Same certificate, same requirement, one permission.
+codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP/Contents/MacOS/recorder"
+codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP"
+
+# Ad-hoc only: the cdhash moved, so the old grant is dead weight that still shows as
+# ticked. Clear it so the next launch prompts cleanly. With a stable identity the
+# grant is meant to persist, so leave it alone.
+if [ "$STABLE" = "0" ] && [ "${SUMMEET_KEEP_TCC:-0}" != "1" ]; then
+  echo "→ clearing stale TCC entries (ad-hoc signatures are cdhash-pinned)"
   for id in com.summeet.app com.summeet.recorder; do
     for svc in ScreenCapture Microphone SystemPolicyDocumentsFolder; do
       tccutil reset "$svc" "$id" >/dev/null 2>&1 || true

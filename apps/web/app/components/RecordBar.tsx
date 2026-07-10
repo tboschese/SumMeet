@@ -57,7 +57,10 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
         1000,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("rec.nativeFailed"));
+      // Surface the raw reason: a dead Record button is almost always the shell
+      // bridge (invoke missing, command name changed), not the recorder itself.
+      const reason = e instanceof Error ? e.message : String(e);
+      setError(`${t("rec.nativeFailed")} — ${reason}`);
       setMode("idle");
     }
   }, [t]);

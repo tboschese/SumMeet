@@ -7,24 +7,31 @@
 // `withGlobalTauri` exposes __TAURI__ on window, so the web app needs no npm
 // dependency on Tauri and still builds/ships as a plain website.
 
-interface TauriGlobal {
-  core: { invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T> };
-}
+type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
-function tauri(): TauriGlobal | null {
+/**
+ * Tauri v2 exposes invoke at `__TAURI__.core.invoke`, but depending on version and
+ * build it can also land at `__TAURI__.invoke`. Reading only the first shape means
+ * the global is present, `isNativeShell()` says yes, and then every command throws
+ * on `undefined.invoke` — which looks exactly like a dead Record button.
+ */
+function tauriInvoke(): InvokeFn | null {
   if (typeof window === "undefined") return null;
-  return (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__ ?? null;
+  const g = (window as unknown as {
+    __TAURI__?: { core?: { invoke?: InvokeFn }; invoke?: InvokeFn };
+  }).__TAURI__;
+  return g?.core?.invoke ?? g?.invoke ?? null;
 }
 
 /** True when running inside the desktop app rather than a browser tab. */
 export function isNativeShell(): boolean {
-  return tauri() !== null;
+  return tauriInvoke() !== null;
 }
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const t = tauri();
-  if (!t) throw new Error("not running in the desktop app");
-  return t.core.invoke<T>(cmd, args);
+  const fn = tauriInvoke();
+  if (!fn) throw new Error("not running in the desktop app");
+  return fn<T>(cmd, args);
 }
 
 /**
