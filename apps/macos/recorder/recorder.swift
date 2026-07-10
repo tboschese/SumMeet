@@ -4,9 +4,15 @@
 //   • system audio  (everyone else)  -> LEFT  channel
 //   • microphone    (you)            -> RIGHT channel
 //
-// Both come from a single SCStream (macOS 15+ `captureMicrophone`), so they share
-// one clock and can't drift apart — which is what makes the stereo layout, and
-// therefore the free speaker attribution (SPEC A1), trustworthy.
+// The system audio comes from ScreenCaptureKit. The microphone does NOT: measured
+// against a Samsung USB-C headset, SCStreamConfiguration.captureMicrophone yields a
+// flat -40 dB hiss (peak/valley ratio 1.2) while the very same device, read through
+// CoreAudio, delivers speech at full scale. It fails silently, which is the worst way
+// to fail, so the mic is captured with AVCaptureSession instead.
+//
+// That costs us the single shared clock the two channels used to have. The channels
+// are therefore length-matched at join time, and the drift is logged — a few
+// milliseconds over a meeting, against 100 ms attribution windows.
 //
 //   recorder <out.wav> [seconds]     # omit seconds to record until SIGINT
 //
@@ -25,7 +31,21 @@ import ScreenCaptureKit
 
 /// Writes one source to its own WAV and tracks loudness, so "it ran" can never be
 /// mistaken for "it captured".
+func describe(_ f: AVAudioFormat) -> String {
+    let depth: String
+    switch f.commonFormat {
+    case .pcmFormatFloat32: depth = "float32"
+    case .pcmFormatFloat64: depth = "float64"
+    case .pcmFormatInt16: depth = "int16"
+    case .pcmFormatInt32: depth = "int32"
+    default: depth = "other"
+    }
+    return "\(Int(f.sampleRate))Hz \(f.channelCount)ch \(depth) "
+        + (f.isInterleaved ? "interleaved" : "planar")
+}
+
 final class ChannelWriter {
+    let name: String
     private let url: URL
     private var file: AVAudioFile?
     /// The format the file was opened with. Every later buffer must match it.
@@ -33,6 +53,14 @@ final class ChannelWriter {
     private var converter: AVAudioConverter?
     private(set) var convertedBuffers = 0
     private(set) var droppedBuffers = 0
+    /// Peak of the buffer as it *arrived*, before any conversion. Separates "the OS
+    /// handed us silence" from "we destroyed the signal on the way to disk".
+    private(set) var rawPeak: Float = 0
+    /// Host-time of the first buffer, and of the end of the last one. Their difference
+    /// is how long this source really ran; comparing that to how many samples it wrote
+    /// measures the device's own clock against the host's — no cross-device assumption.
+    private(set) var firstPTS: Double?
+    private(set) var lastPTSEnd: Double?
     private(set) var sumSquares: Double = 0
     private(set) var sampleCount = 0
     private(set) var peak: Float = 0
@@ -41,7 +69,7 @@ final class ChannelWriter {
     private var windowCount = 0
     private let lock = NSLock()
 
-    init(url: URL) { self.url = url }
+    init(name: String, url: URL) { self.name = name; self.url = url }
 
     var rms: Double {
         sampleCount > 0 ? (sumSquares / Double(sampleCount)).squareRoot() : 0
@@ -60,6 +88,14 @@ final class ChannelWriter {
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        if pts.isFinite {
+            let dur = CMSampleBufferGetDuration(sampleBuffer).seconds
+            lock.lock()
+            if firstPTS == nil { firstPTS = pts }
+            lastPTSEnd = pts + (dur.isFinite ? dur : 0)
+            lock.unlock()
+        }
         guard sampleBuffer.isValid,
               let fmtDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fmtDesc)?.pointee,
@@ -91,8 +127,34 @@ final class ChannelWriter {
             // is opened as float32 regardless, so an Int16 source would otherwise
             // compare equal to itself and be written into a format it doesn't match.
             fileFormat = file?.processingFormat
+            err("  [\(name)] first buffer: \(describe(pcm.format))")
+            if let f = fileFormat { err("  [\(name)] file format:   \(describe(f))") }
         }
         guard let file, let fileFormat else { return }
+
+        switch pcm.format.commonFormat {
+        case .pcmFormatFloat32:
+            if let d = pcm.floatChannelData {
+                for ch in 0..<Int(pcm.format.channelCount) {
+                    let stride = pcm.format.isInterleaved ? Int(pcm.format.channelCount) : 1
+                    let base = pcm.format.isInterleaved ? ch : 0
+                    for i in 0..<Int(pcm.frameLength) {
+                        rawPeak = max(rawPeak, abs(d[pcm.format.isInterleaved ? 0 : ch][base + i * stride]))
+                    }
+                }
+            }
+        case .pcmFormatInt16:
+            if let d = pcm.int16ChannelData {
+                let chs = Int(pcm.format.channelCount)
+                let count = Int(pcm.frameLength) * (pcm.format.isInterleaved ? chs : 1)
+                for ch in 0..<(pcm.format.isInterleaved ? 1 : chs) {
+                    for i in 0..<count {
+                        rawPeak = max(rawPeak, abs(Float(d[ch][i]) / 32768.0))
+                    }
+                }
+            }
+        default: break
+        }
 
         // Connecting headphones switches the input device mid-stream and the buffers
         // change shape — a real recording died here, on the `mic` queue. AVAudioFile
@@ -104,6 +166,9 @@ final class ChannelWriter {
         if pcm.format == fileFormat {
             toWrite = pcm
         } else if let converted = convert(pcm, to: fileFormat) {
+            if convertedBuffers == 0 {
+                err("  [\(name)] converting from \(describe(pcm.format))")
+            }
             convertedBuffers += 1
             toWrite = converted
         } else {
@@ -164,6 +229,43 @@ final class ChannelWriter {
     func close() { lock.lock(); file = nil; lock.unlock() }
 }
 
+// MARK: - Microphone (AVCaptureSession, not ScreenCaptureKit)
+
+/// ScreenCaptureKit's microphone output is unreliable across audio devices; CoreAudio
+/// is not. Same permission (NSMicrophoneUsageDescription), same buffers, different
+/// clock — see the note at the top of this file.
+final class MicCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+    private let session = AVCaptureSession()
+    private let writer: ChannelWriter
+    let deviceName: String
+
+    init?(writer: ChannelWriter) {
+        guard let device = AVCaptureDevice.default(for: .audio),
+              let input = try? AVCaptureDeviceInput(device: device) else { return nil }
+        self.writer = writer
+        self.deviceName = device.localizedName
+        super.init()
+
+        session.beginConfiguration()
+        guard session.canAddInput(input) else { session.commitConfiguration(); return nil }
+        session.addInput(input)
+
+        let output = AVCaptureAudioDataOutput()
+        output.setSampleBufferDelegate(self, queue: DispatchQueue(label: "mic"))
+        guard session.canAddOutput(output) else { session.commitConfiguration(); return nil }
+        session.addOutput(output)
+        session.commitConfiguration()
+    }
+
+    func start() { session.startRunning() }
+    func stop() { session.stopRunning() }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        writer.append(sampleBuffer)
+    }
+}
+
 // MARK: - Capture
 
 final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
@@ -171,17 +273,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     let mic: ChannelWriter
 
     init(systemURL: URL, micURL: URL) {
-        system = ChannelWriter(url: systemURL)
-        mic = ChannelWriter(url: micURL)
+        system = ChannelWriter(name: "system", url: systemURL)
+        mic = ChannelWriter(name: "mic", url: micURL)
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
                 of type: SCStreamOutputType) {
-        switch type {
-        case .audio: system.append(sampleBuffer)
-        case .microphone: mic.append(sampleBuffer)
-        default: break // .screen — we ask for the smallest possible frame and drop it
-        }
+        // Only .audio: the microphone arrives through MicCapture, not through SCStream.
+        if type == .audio { system.append(sampleBuffer) }
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -317,9 +416,53 @@ func correlation(_ a: URL, _ b: URL, limitFrames: Int = 48_000 * 30) -> Double? 
     return num / (dx * dy).squareRoot()
 }
 
+/// Seconds of audio in a file, from its own header.
+func durationSeconds(_ url: URL) -> Double {
+    guard let f = try? AVAudioFile(forReading: url), f.fileFormat.sampleRate > 0 else { return 0 }
+    return Double(f.length) / f.fileFormat.sampleRate
+}
+
 /// Joins the two mono/stereo sources into the layout the pipeline expects:
 /// left = system (others), right = mic (you). See CHANNEL_OTHERS / CHANNEL_SELF.
-func joinStereo(system: URL, mic: URL, out: URL) throws {
+///
+/// The two sources no longer share a clock (see the note at the top of this file), so
+/// the microphone is stretched onto the system's timeline. Padding instead would leave
+/// the drift distributed through the meeting, and speaker attribution reads 100 ms
+/// windows: a 0.1% drift is 3.6 seconds of misattribution by the end of an hour.
+func joinStereo(system: URL, mic: URL, out: URL,
+                systemStart: Double?, micStart: Double?, micWallSpan: Double?) throws {
+    let systemDuration = durationSeconds(system)
+    let micDuration = durationSeconds(mic)
+    let systemFilter = "aformat=channel_layouts=mono"
+    var micFilter = "aformat=channel_layouts=mono"
+
+    // The mic session opens after the capture stream, so its first sample is late. We
+    // deliberately do *not* pad it: a pulsed-tone test showed the stream's first PTS
+    // does not mark the instant of the audio inside that buffer, so the measured offset
+    // is not the acoustic one. And a constant offset does not spoil attribution anyway
+    // — each channel carries its own speech at its own position, and the energy vote
+    // reads both channels at the same instant of the mixed file.
+    if let s = systemStart, let m = micStart {
+        err(String(format: "  start offset: mic +%.0f ms (not corrected — see joinStereo)",
+                   (m - s) * 1000))
+    }
+
+    // Drift is different: the microphone runs on the device's crystal, not the host's.
+    // Comparing how long the mic *ran* (host time) against how much audio it *wrote*
+    // measures that clock directly, with no assumption about the other source. Left
+    // uncorrected, 0.1% is 3.6 seconds of misattribution by the end of an hour.
+    if let wall = micWallSpan, wall > 1, micDuration > 1 {
+        let tempo = micDuration / wall
+        err(String(format: "  mic clock: wrote %.3fs of audio in %.3fs of host time (%+.3f%%)",
+                   micDuration, wall, (tempo - 1) * 100))
+        if abs(tempo - 1) > 0.0002 && tempo > 0.95 && tempo < 1.05 {
+            micFilter += String(format: ",atempo=%.6f", tempo)
+        } else if abs(tempo - 1) >= 0.05 {
+            err("  refusing to stretch: that is not drift, the recording is malformed")
+        }
+    }
+    err(String(format: "  durations: system %.3fs, mic %.3fs", systemDuration, micDuration))
+
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     p.arguments = [
@@ -330,7 +473,7 @@ func joinStereo(system: URL, mic: URL, out: URL) throws {
         // source, and a source can be mono: the file takes the shape of its first
         // buffer, and a device switch decides what that is.
         "-filter_complex",
-        "[0:a]aformat=channel_layouts=mono[l];[1:a]aformat=channel_layouts=mono[r];"
+        "[0:a]" + systemFilter + "[l];[1:a]" + micFilter + "[r];"
             + "[l][r]join=inputs=2:channel_layout=stereo[a]",
         "-map", "[a]", "-ar", "48000", out.path,
     ]
@@ -439,7 +582,7 @@ func selfTest() -> Int32 {
         .appendingPathComponent("summeet-selftest-\(UUID().uuidString).wav")
     defer { try? FileManager.default.removeItem(at: url) }
 
-    let w = ChannelWriter(url: url)
+    let w = ChannelWriter(name: "selftest", url: url)
     w.append(float(rate: 48_000, frames: 4800))   // file opens: float32 48k stereo
     w.append(int16Planar(rate: 48_000, frames: 4800))  // headset: Int16 planar — aborts
     w.append(float(rate: 44_100, frames: 4410))   // and a different rate
@@ -526,7 +669,8 @@ struct Main {
             let config = SCStreamConfiguration()
             config.capturesAudio = true
             config.excludesCurrentProcessAudio = true
-            config.captureMicrophone = true
+            // The microphone is captured separately, through CoreAudio.
+            config.captureMicrophone = false
             config.sampleRate = 48_000
             config.channelCount = 2
             // Audio-only: keep the mandatory video plane as small as allowed.
@@ -538,9 +682,15 @@ struct Main {
             let stream = SCStream(filter: filter, configuration: config, delegate: rec)
             try stream.addStreamOutput(rec, type: .audio,
                                        sampleHandlerQueue: DispatchQueue(label: "sys"))
-            try stream.addStreamOutput(rec, type: .microphone,
-                                       sampleHandlerQueue: DispatchQueue(label: "mic"))
+
+            guard let micCapture = MicCapture(writer: rec.mic) else {
+                err("could not open the microphone through CoreAudio")
+                exit(9)
+            }
+            err("microphone device: \(micCapture.deviceName)")
+
             try await stream.startCapture()
+            micCapture.start()
             err("recording… (system -> left, mic -> right)")
 
             // Live meter: the shell polls this to show the user, while recording,
@@ -567,6 +717,7 @@ struct Main {
                 }
             }
 
+            micCapture.stop()
             try await stream.stopCapture()
             try? await Task.sleep(nanoseconds: 300_000_000) // let writers flush
             rec.system.close()
@@ -576,6 +727,8 @@ struct Main {
                        rec.system.rms, rec.system.peak, rec.system.sampleCount))
             err(String(format: "  mic:    RMS %.6f peak %.4f (%d samples)",
                        rec.mic.rms, rec.mic.peak, rec.mic.sampleCount))
+            err(String(format: "  raw peaks (before conversion): system %.4f  mic %.4f",
+                       rec.system.rawPeak, rec.mic.rawPeak))
 
             // A device change mid-meeting (headphones in or out) is normal; losing
             // buffers to it is not. Say so rather than shipping a quiet gap.
@@ -628,7 +781,10 @@ struct Main {
                 }
             }
 
-            try joinStereo(system: sysURL, mic: micURL, out: outURL)
+            let micWall = (rec.mic.lastPTSEnd ?? 0) - (rec.mic.firstPTS ?? 0)
+            try joinStereo(system: sysURL, mic: micURL, out: outURL,
+                           systemStart: rec.system.firstPTS, micStart: rec.mic.firstPTS,
+                           micWallSpan: micWall > 0 ? micWall : nil)
             out("OK \(outURL.path)")
             out("SYSTEM_RMS=\(rec.system.rms) MIC_RMS=\(rec.mic.rms)")
 
