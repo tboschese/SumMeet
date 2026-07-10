@@ -173,6 +173,153 @@ export function stitchSegments(chunks: RawChunkTranscript[]): {
   return { segments, text };
 }
 
+// ── Speaker attribution from stereo channels (SPEC A1, zero-cost diarization) ─
+// The recorder writes tab audio to the left channel and the mic to the right.
+// Comparing per-segment energy tells us who spoke, with no model and no extra
+// API call. Speakerphone bleeds the tab into the mic, so we require the mic to
+// be clearly louder before calling a span "self".
+
+const ENERGY_WINDOW_SEC = 0.1;
+const ENERGY_SAMPLE_RATE = 8000; // plenty for loudness; keeps the decode cheap
+/** Mic must beat the tab by this factor to count as "you" (echo tolerance). */
+const SELF_DOMINANCE = 1.5;
+/** Below this RMS both channels are effectively silence → unknown speaker. */
+const SILENCE_RMS = 120; // int16 scale
+
+/** Number of audio channels, via ffprobe. Mono audio can't be diarized this way. */
+export async function probeChannels(filePath: string): Promise<number> {
+  const { stdout } = await run("ffprobe", [
+    "-v", "error",
+    "-select_streams", "a:0",
+    "-show_entries", "stream=channels",
+    "-of", "default=noprint_wrappers=1:nokey=1",
+    filePath,
+  ]);
+  const n = Number.parseInt(stdout.trim(), 10);
+  return Number.isFinite(n) ? n : 1;
+}
+
+export interface ChannelEnergy {
+  left: Float64Array; // RMS per window
+  right: Float64Array;
+  windowSec: number;
+}
+
+/**
+ * Stream the audio as 8 kHz stereo PCM and reduce it to per-window RMS for each
+ * channel. Streaming (rather than buffering the whole PCM) keeps a 60-minute
+ * meeting to a few hundred KB of energy data.
+ */
+export function computeChannelEnergy(filePath: string): Promise<ChannelEnergy> {
+  return new Promise((resolve, reject) => {
+    const samplesPerWindow = Math.round(ENERGY_SAMPLE_RATE * ENERGY_WINDOW_SEC);
+    const left: number[] = [];
+    const right: number[] = [];
+    let sumL = 0;
+    let sumR = 0;
+    let count = 0;
+    let carry: Buffer = Buffer.alloc(0);
+
+    const child = spawn("ffmpeg", [
+      "-v", "error",
+      "-i", filePath,
+      "-ac", "2",
+      "-ar", String(ENERGY_SAMPLE_RATE),
+      "-f", "s16le",
+      "-acodec", "pcm_s16le",
+      "-",
+    ]);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      let buf = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      // Each frame is 4 bytes: int16 left + int16 right (interleaved).
+      const usable = buf.length - (buf.length % 4);
+      for (let i = 0; i < usable; i += 4) {
+        const l = buf.readInt16LE(i);
+        const r = buf.readInt16LE(i + 2);
+        sumL += l * l;
+        sumR += r * r;
+        if (++count === samplesPerWindow) {
+          left.push(Math.sqrt(sumL / count));
+          right.push(Math.sqrt(sumR / count));
+          sumL = sumR = count = 0;
+        }
+      }
+      carry = buf.subarray(usable);
+    });
+
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", (err) => reject(new Error(`ffmpeg failed: ${err.message}`)));
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`ffmpeg exited ${code}: ${stderr}`));
+      if (count > 0) {
+        left.push(Math.sqrt(sumL / count));
+        right.push(Math.sqrt(sumR / count));
+      }
+      resolve({
+        left: Float64Array.from(left),
+        right: Float64Array.from(right),
+        windowSec: ENERGY_WINDOW_SEC,
+      });
+    });
+  });
+}
+
+/** A transcript segment can straddle a speaker change, so vote per 100ms window
+ * rather than averaging RMS across the whole span: an average is dominated by
+ * whichever voice was louder, not by who spoke most of it. Windows that are
+ * silent, or where neither channel clearly dominates, don't vote. */
+function voteSpeaker(
+  left: Float64Array,
+  right: Float64Array,
+  startSec: number,
+  endSec: number,
+  windowSec: number,
+): "self" | "others" | null {
+  const from = Math.max(0, Math.floor(startSec / windowSec));
+  const to = Math.min(left.length, Math.ceil(endSec / windowSec));
+  let selfWins = 0;
+  let othersWins = 0;
+
+  for (let i = from; i < to; i++) {
+    const l = left[i]!;
+    const r = right[i]!;
+    if (Math.max(l, r) < SILENCE_RMS) continue; // silence
+    if (r > l * SELF_DOMINANCE) selfWins++;
+    else if (l > r * SELF_DOMINANCE) othersWins++;
+    // otherwise: both active (speakerphone bleed / crosstalk) — no vote
+  }
+
+  const voiced = selfWins + othersWins;
+  if (voiced === 0) return null;
+  // Require a clear majority; a genuinely split segment stays unattributed.
+  if (selfWins > othersWins * 1.5) return "self";
+  if (othersWins > selfWins * 1.5) return "others";
+  return null;
+}
+
+/**
+ * Label each segment with who spoke, using the stereo channels. Returns the
+ * segments untouched (speaker undefined) when the audio isn't stereo — mono
+ * uploads simply carry no speaker information.
+ */
+export async function assignSpeakers(
+  filePath: string,
+  segments: TranscriptSegment[],
+): Promise<TranscriptSegment[]> {
+  if (segments.length === 0) return segments;
+  if ((await probeChannels(filePath)) < 2) return segments;
+
+  const { left, right, windowSec } = await computeChannelEnergy(filePath);
+  if (left.length === 0) return segments;
+
+  return segments.map((seg) => ({
+    ...seg,
+    speaker: voteSpeaker(left, right, seg.start, seg.end, windowSec),
+  }));
+}
+
 /** Create a private temp dir; caller is responsible for cleanupTmp(). */
 export async function makeTmpDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "summeet-audio-"));

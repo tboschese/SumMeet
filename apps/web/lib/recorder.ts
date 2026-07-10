@@ -1,7 +1,9 @@
 // Client-only meeting recorder (SPEC §7.1a). Captures tab audio (other
-// participants) via getDisplayMedia + the user's mic via getUserMedia, mixes
-// them with the Web Audio API, and records a single .webm blob with a timeslice
-// so long/backgrounded recordings don't drop audio. No server involvement.
+// participants) via getDisplayMedia + the user's mic via getUserMedia, keeps
+// them as separate stereo channels, and records a single .webm blob with a
+// timeslice so long/backgrounded recordings don't drop audio. No server involved.
+
+import { CHANNEL_OTHERS, CHANNEL_SELF } from "@summeet/core/media";
 
 export type RecorderErrorCode =
   | "TAB_AUDIO_MISSING" // user shared a tab but forgot "share tab audio" (#1 miss)
@@ -108,13 +110,20 @@ export class MeetingRecorder {
       );
     }
 
-    // 3. Mix both sources into one stream (Web Audio).
+    // 3. Combine the two sources as STEREO CHANNELS instead of mixing them down:
+    //    left = tab (everyone else), right = mic (you). That preserves who spoke,
+    //    for free — no diarization model, no extra API call. The pipeline still
+    //    transcribes a mono downmix; the channels only decide the speaker.
     this.audioCtx = new AudioContext();
     const dest = this.audioCtx.createMediaStreamDestination();
+    const merger = this.audioCtx.createChannelMerger(2);
     this.audioCtx
       .createMediaStreamSource(new MediaStream(tabAudio))
-      .connect(dest);
-    this.audioCtx.createMediaStreamSource(this.micStream).connect(dest);
+      .connect(merger, 0, CHANNEL_OTHERS);
+    this.audioCtx
+      .createMediaStreamSource(this.micStream)
+      .connect(merger, 0, CHANNEL_SELF);
+    merger.connect(dest);
 
     // 4. Record with a timeslice so nothing is lost if the tab is backgrounded.
     this.mimeType = pickMimeType();

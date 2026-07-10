@@ -366,6 +366,15 @@ export default function MeetingDetailPage() {
                   <span className="mr-2 font-mono text-xs text-ink-soft/50">
                     {formatTs(seg.start)}
                   </span>
+                  {seg.speaker && (
+                    <span
+                      className={`mr-2 text-xs font-semibold ${
+                        seg.speaker === "self" ? "text-brand" : "text-ink-soft/70"
+                      }`}
+                    >
+                      {seg.speaker === "self" ? "You" : "Others"}
+                    </span>
+                  )}
                   {seg.text}
                 </p>
               ))}

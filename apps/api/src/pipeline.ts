@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  assignSpeakers,
   extractInsights,
+  formatTranscriptForPrompt,
+  parseSegments,
   stringifyInsights,
   stringifySegments,
   transcribeFile,
@@ -58,11 +61,17 @@ export async function extractAndPersist(
   });
   log?.(`extract ${meetingId}: extracting`);
 
-  const { insights, rawOutput, provider } = await extractInsights(
+  // Speaker labels live on the stored segments; rebuild the labelled transcript
+  // so on-demand extraction gets the same ownership signal the pipeline does.
+  const { text, labelled } = formatTranscriptForPrompt(
+    parseSegments(meeting.transcript.segments),
     meeting.transcript.fullText,
-    llm,
-    { outputLanguage: outputLanguage(settings), glossary: glossary(settings) },
   );
+  const { insights, rawOutput, provider } = await extractInsights(text, llm, {
+    outputLanguage: outputLanguage(settings),
+    glossary: glossary(settings),
+    speakerLabelled: labelled,
+  });
   const data = stringifyInsights(insights);
   await db.insights.upsert({
     where: { meetingId },
@@ -132,22 +141,25 @@ export async function runPipeline(
       prompt: glossary(settings),
     });
 
+    // Who spoke, straight from the stereo channels (left = others, right = you).
+    // Free: no model, no extra API call — just an ffmpeg energy pass. Mono
+    // uploads come back unlabelled.
+    const segments = await assignSpeakers(audioPath, transcript.segments);
+
     const durationSec =
-      transcript.segments.length > 0
-        ? Math.round(transcript.segments[transcript.segments.length - 1]!.end)
-        : null;
+      segments.length > 0 ? Math.round(segments[segments.length - 1]!.end) : null;
 
     await db.transcript.upsert({
       where: { meetingId },
       create: {
         meetingId,
         fullText: transcript.text,
-        segments: stringifySegments(transcript.segments),
+        segments: stringifySegments(segments),
         provider: transcriber.id,
       },
       update: {
         fullText: transcript.text,
-        segments: stringifySegments(transcript.segments),
+        segments: stringifySegments(segments),
         provider: transcriber.id,
       },
     });
@@ -172,10 +184,15 @@ export async function runPipeline(
       data: { status: "EXTRACTING", durationSec },
     });
     log?.(`pipeline ${meetingId}: extracting`);
+    const prompted = formatTranscriptForPrompt(segments, transcript.text);
     const { insights, rawOutput, provider } = await extractInsights(
-      transcript.text,
+      prompted.text,
       llm,
-      { outputLanguage: outputLanguage(settings), glossary: glossary(settings) },
+      {
+        outputLanguage: outputLanguage(settings),
+        glossary: glossary(settings),
+        speakerLabelled: prompted.labelled,
+      },
     );
 
     await db.insights.upsert({

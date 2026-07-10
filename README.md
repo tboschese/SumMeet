@@ -143,6 +143,17 @@ transcript so the LLM is judged independently of transcription errors.
 - **Web can't reach the API** — make sure `pnpm dev` started both; the API is on
   `:8080`. Override with `NEXT_PUBLIC_API_BASE_URL` if you moved it.
 
+## Who said what (roadmap A1)
+
+Recordings are stored as **stereo**: left channel = the meeting tab (everyone
+else), right channel = your microphone. The pipeline reads the speaker off the
+channel energy, so the transcript is labelled **You** / **Others** and action
+items get `owner: "You"` for what *you* committed to — with **no diarization
+model, no API key and no extra call**.
+
+Limits: it separates you from everyone else, not the other participants from each
+other. File uploads (mono) carry no speaker data and stay unlabelled.
+
 ## Chrome extension (roadmap A2)
 
 A floating **Record** button right on the Meet/Teams/Zoom page — no separate

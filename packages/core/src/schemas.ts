@@ -60,11 +60,22 @@ export const SettingsUpdateSchema = SettingsSchema.extend({
 });
 export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
 
+/**
+ * Who spoke (SPEC A1 "diarization"). No model, no extra API call: the recorder
+ * already captures two physically separate sources — tab audio (everyone else)
+ * and the microphone (you) — so it stores them as stereo channels and we read
+ * the speaker off per-segment channel energy. `null` when we can't know: mono
+ * uploads, older recordings, or an ambiguous/silent span.
+ */
+export const SpeakerSchema = z.enum(["self", "others"]).nullable();
+export type Speaker = z.infer<typeof SpeakerSchema>;
+
 // ── Transcript segments (stored as a JSON String; §8) ─────────────────────────
 export const TranscriptSegmentSchema = z.object({
   start: z.number(), // seconds, absolute in the recording's timeline
   end: z.number(),
   text: z.string(),
+  speaker: SpeakerSchema.optional(),
 });
 export type TranscriptSegment = z.infer<typeof TranscriptSegmentSchema>;
 

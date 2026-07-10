@@ -27,13 +27,28 @@ function glossaryRule(glossary?: string): string {
   return `\n\nKnown names and terms for this meeting (spell them exactly like this; the transcript may misspell them):\n${terms}\nStill never invent an owner who isn't in the transcript — correcting a spelling is allowed, inventing a person is not.`;
 }
 
+/**
+ * Speaker labels come from the recorder's stereo channels (SPEC A1). They make
+ * ownership decidable for the question that matters most — "what did *I* commit
+ * to?" — without a diarization model.
+ */
+function speakerRule(labelled?: boolean): string {
+  if (!labelled) return "";
+  return `\n\nThe transcript is labelled by speaker. Lines beginning "You:" were spoken by the person recording the meeting; lines beginning "Others:" by the other participants.
+- Use this for ownership: a commitment made on a "You:" line belongs to the recorder — set "owner" to "You" unless they name themselves.
+- A commitment an "Others:" line assigns to a named person belongs to that person.
+- The "You:"/"Others:" prefixes are NOT spoken words. Never include them in a "sourceQuote"; quote only the words that were said.`;
+}
+
 /** Build the system prompt, honoring the configured insights language + glossary. */
 export function buildSystemPrompt(
   outputLanguage?: string,
   glossary?: string,
+  speakerLabelled?: boolean,
 ): string {
   return (
     EXTRACTION_SYSTEM_PROMPT.replace(LANGUAGE_RULE_TOKEN, languageRule(outputLanguage)) +
+    speakerRule(speakerLabelled) +
     glossaryRule(glossary)
   );
 }

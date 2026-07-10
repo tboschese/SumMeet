@@ -69,10 +69,15 @@ async function start(streamId) {
     audioCtx = new AudioContext();
     const dest = audioCtx.createMediaStreamDestination();
 
+    // Stereo channels, not a mixdown: left = tab (others), right = mic (you).
+    // Mirrors CHANNEL_OTHERS / CHANNEL_SELF in @summeet/core/media — it's how
+    // the pipeline tells who spoke without a diarization model.
+    const merger = audioCtx.createChannelMerger(2);
     const tabSrc = audioCtx.createMediaStreamSource(tab);
-    tabSrc.connect(dest); // into the recording
-    tabSrc.connect(audioCtx.destination); // keep it audible (tabCapture would mute it)
-    audioCtx.createMediaStreamSource(mic).connect(dest);
+    tabSrc.connect(merger, 0, 0); // CHANNEL_OTHERS
+    tabSrc.connect(audioCtx.destination); // keep audible (tabCapture would mute it)
+    audioCtx.createMediaStreamSource(mic).connect(merger, 0, 1); // CHANNEL_SELF
+    merger.connect(dest);
 
     const mimeType = pickMimeType();
     chunks = [];

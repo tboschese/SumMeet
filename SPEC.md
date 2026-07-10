@@ -467,11 +467,29 @@ Seven sessions. Each has an **isolated, testable outcome** — prove each layer 
 
 ## 13. Key risks & open decisions
 
-**13.1 Diarization (who-said-what) — the biggest one.**
-MVP ships a single transcript with no speaker labels. For *meetings*, this is the largest quality gap: action-item ownership is much weaker when you can't tell who committed to what. Decide before Phase 2:
-- *Self-host:* `faster-whisper` + `pyannote.audio` (needs a HuggingFace token, heavier compute; fits the cost/private thesis).
-- *Bundled provider:* Deepgram or AssemblyAI return transcription **+ diarization + words-with-speakers** in one call (simpler, slightly less "cheap/local").
-- **Recommendation:** prototype both on 2–3 real meetings and compare owner-assignment accuracy before committing. This changes the segment schema and the extraction prompt, so decide early.
+**13.1 Diarization — solved for self-vs-others, open for the rest.**
+The recorder mixes two *physically separate* sources. Mixing them to mono threw
+that away; writing them as stereo channels (left = tab, right = mic) recovers
+"who spoke" for free — no model, no key, no extra API call. The pipeline votes
+per 100 ms window on channel energy (an average would be dominated by whichever
+voice was louder, not by who spoke most of the span) and requires a clear
+majority, leaving genuinely overlapped spans unattributed.
+
+Measured: with labels, the extractor assigned `owner: "You"` to a commitment it
+had left `null` without them — same transcript, same call, same cost.
+
+Known limits, in priority order:
+1. **Only "you" vs "everyone else."** Telling the *other* participants apart
+   still needs a real diarizer (pyannote self-hosted, or Deepgram/AssemblyAI —
+   both raise cost or add a dependency).
+2. **Segment granularity bounds accuracy.** A transcript segment that straddles a
+   speaker change gets one label. Fine segmentation (whisper large) handles it;
+   coarse segmentation (whisper base) can merge a whole exchange into one span.
+3. **Speakerphone bleed.** Tab audio re-entering the mic makes both channels
+   active; the dominance ratio tolerates this, and truly ambiguous windows
+   abstain rather than guess.
+4. **Mono audio carries no speaker data** — file uploads and pre-A1 recordings
+   simply come back unlabelled (`speaker: null`), and the prompt drops the rule.
 
 **13.2 Long-audio limits.** Whisper APIs cap file size (~25 MB). The §7.5 compress-and-chunk approach handles it, but watch chunk boundaries splitting sentences — hence the overlap windows and per-chunk timestamp offset.
 
@@ -537,7 +555,7 @@ The original 8-phase plan, tightened and reordered. The MVP above = old Phases 0
 | Phase | Theme | Core deliverable | Notes vs. original |
 |---|---|---|---|
 | **MVP** | Prove the core | **In-browser capture** → validated insights → web app | Merges backend + web + intelligence + browser capture. Extraction quality is the bar. |
-| **A1** | Diarization | Speaker-attributed transcripts + owner-aware action items | **New / promoted.** Biggest quality lever; was missing from the original. |
+| **A1** ✅ | Diarization (self vs others) | Speaker-attributed transcripts + owner-aware action items | **Shipped, at zero cost.** The recorder already captures two physically separate sources, so it writes them as stereo channels (left = tab/others, right = mic/you) and the pipeline reads the speaker off per-window channel energy — no model, no API key, no extra call. Answers the primary job ("what did *I* commit to?"). Distinguishing *between* the other participants still needs a real diarizer; see §13.1. |
 | **A2** ✅ | Chrome extension | Floating Record button *on the Meet/Teams-web page* → same API | **Shipped.** Uses `chrome.tabCapture` (no share-picker) + offscreen doc; same `POST /api/meetings`. |
 | **A3** ✅ | Processing engines | Cloud (Groq) / Local (whisper.cpp + Ollama) chosen per stage | **Shipped.** Free, fully offline "private mode" behind the provider seams; engines can be mixed. Quality of small local models is the open question (§13.7). |
 | **A4** | Integrations | Slack + Notion + email delivery of insights | Original Phase 5. "Consume value without opening the app." |
