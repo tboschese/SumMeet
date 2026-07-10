@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   assignSpeakers,
+  estimateChannelBalance,
   extractInsights,
   formatTranscriptForPrompt,
   isSummeetStereoLayout,
@@ -139,10 +140,25 @@ export async function runPipeline(
       data: { status: "TRANSCRIBING", error: null },
     });
     log?.(`pipeline ${meetingId}: transcribing`);
+    // Equalise the two speakers before the downmix, but only for audio one of our
+    // recorders declared. Log it: a quiet speaker averaged away is invisible in the
+    // output — all you see is a transcript missing your own voice.
+    const balance = isSummeetStereoLayout(meeting.channelLayout)
+      ? ((await estimateChannelBalance(audioPath)) ?? undefined)
+      : undefined;
+    if (isSummeetStereoLayout(meeting.channelLayout)) {
+      log?.(
+        `pipeline ${meetingId}: channel balance ` +
+          (balance
+            ? `others=${balance.left.toFixed(3)} you=${balance.right.toFixed(3)}`
+            : "none (one side never spoke)"),
+      );
+    }
+
     const transcript = await transcribeFile(audioPath, transcriber, {
       language: transcriptionHint(settings),
       prompt: glossary(settings),
-      balanceChannels: isSummeetStereoLayout(meeting.channelLayout),
+      balance,
     });
 
     // Who spoke, straight from the stereo channels (left = others, right = you).

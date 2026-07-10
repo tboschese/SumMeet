@@ -47,6 +47,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <string>SumMeet records your voice alongside the meeting audio, so your own commitments are captured.</string>
   <key>NSCameraUsageDescription</key>
   <string>SumMeet does not use the camera.</string>
+  <!--
+    The dev backend runs from the repo, which lives under ~/Documents. Without this
+    key macOS cannot even show the Files-and-Folders prompt, and the child process
+    hangs forever inside getcwd() — a silent block, no error, no dialog. Diagnosed
+    by sampling a stuck `pnpm dev`: uv_cwd -> __getcwd -> open$NOCANCEL.
+  -->
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>SumMeet runs its local server from the project folder while you develop it.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>SumMeet reads recordings you save to the Desktop, if you upload them.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>SumMeet reads recordings you save to Downloads, if you upload them.</string>
 </dict>
 </plist>
 PLIST
@@ -70,7 +82,7 @@ codesign --force --sign - --identifier com.summeet.app "$APP"
 if [ "${SUMMEET_KEEP_TCC:-0}" != "1" ]; then
   echo "→ clearing stale TCC entries for com.summeet.* (ad-hoc signatures are cdhash-pinned)"
   for id in com.summeet.app com.summeet.recorder; do
-    for svc in ScreenCapture Microphone; do
+    for svc in ScreenCapture Microphone SystemPolicyDocumentsFolder; do
       tccutil reset "$svc" "$id" >/dev/null 2>&1 || true
     done
   done

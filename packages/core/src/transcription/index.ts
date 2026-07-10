@@ -12,6 +12,8 @@ export interface TranscriptionResult {
   language: string;
 }
 
+import type { ChannelBalance } from "../audio/index.js";
+
 export interface TranscribeOptions {
   language?: string; // ISO 639-1 hint; omit to auto-detect
   /**
@@ -21,11 +23,12 @@ export interface TranscribeOptions {
    */
   prompt?: string;
   /**
-   * Only for `summeet-stereo-v1`: the channels are two people, so equalise them
-   * before the mono downmix. On arbitrary stereo (music, a panned podcast) the
+   * Per-channel weights for the mono downmix. Only meaningful for
+   * `summeet-stereo-v1`, where the channels are two people recorded at whatever
+   * gain their hardware chose. On arbitrary stereo (music, a panned podcast) the
    * channels carry no such meaning and balancing them would be nonsense.
    */
-  balanceChannels?: boolean;
+  balance?: ChannelBalance;
 }
 
 export interface TranscriptionProvider {

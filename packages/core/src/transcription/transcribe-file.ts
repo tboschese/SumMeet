@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import {
   cleanupTmp,
-  estimateChannelBalance,
   fileSizeBytes,
   makeTmpDir,
   planChunks,
@@ -29,14 +28,7 @@ export async function transcribeFile(
 ): Promise<TranscriptionResult> {
   const tmp = await makeTmpDir();
   try {
-    // Only for audio a SumMeet recorder declared: in `summeet-stereo-v1` the two
-    // channels are two different people, recorded at whatever gain their hardware
-    // happened to use. Averaging them buries the quieter one. An arbitrary stereo
-    // upload is just music — balancing its channels would be meaningless.
-    const balance = opts.balanceChannels
-      ? ((await estimateChannelBalance(inputPath)) ?? undefined)
-      : undefined;
-    const opus = await preprocessToOpus(inputPath, tmp, balance);
+    const opus = await preprocessToOpus(inputPath, tmp, opts.balance);
     const size = await fileSizeBytes(opus);
 
     // Chunk only to satisfy a provider's upload cap. Local providers have none,

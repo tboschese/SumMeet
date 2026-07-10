@@ -83,6 +83,14 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
+/// Alongside the recorder's log, so both halves of a failed meeting are in one place.
+fn backend_log() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let dir = PathBuf::from(home).join("Library/Logs/SumMeet");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("backend.log"))
+}
+
 /// Start the API + panel if they aren't already up, so opening the app is enough
 /// — no `pnpm dev` in another terminal.
 ///
@@ -94,23 +102,48 @@ fn ensure_backend() -> Option<Child> {
         return None; // someone else's dev server: not ours to manage
     }
 
+    // Not /dev/null: the pipeline logs why it did what it did (channel balance,
+    // skipped speaker attribution), and discarding that is how we spent a day
+    // guessing at a microphone that was working.
+    let log = backend_log().and_then(|p| std::fs::File::create(p).ok());
+
     let mut cmd = Command::new("pnpm");
     cmd.arg("dev")
         .current_dir(repo_root())
-        .env("PATH", augmented_path())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .env("PATH", augmented_path());
+    match log {
+        Some(file) => {
+            let errors = match file.try_clone() {
+                Ok(f) => Stdio::from(f),
+                Err(_) => Stdio::null(),
+            };
+            cmd.stdout(Stdio::from(file)).stderr(errors);
+        }
+        None => {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+    }
+
+    // The repo lives under ~/Documents on most dev machines. Touch it from the app
+    // itself, in the foreground, so macOS attributes the Files-and-Folders request
+    // to SumMeet and can actually show the prompt. The child then inherits the grant.
+    let _ = std::fs::read_dir(repo_root());
 
     unsafe {
         cmd.pre_exec(|| {
-            libc::setsid(); // new process group -> we can kill the whole tree
+            // setpgid, not setsid: a new process *group* is all killpg needs, while a
+            // new *session* detaches the child from the app and breaks macOS's
+            // responsible-process attribution. TCC then cannot tell who is asking for
+            // the Documents folder, shows no prompt, and the child blocks forever
+            // inside getcwd() — an hour of "pnpm is broken" that was never pnpm.
+            libc::setpgid(0, 0);
             Ok(())
         });
     }
 
     match cmd.spawn() {
         Ok(child) => {
-            // setsid() made the child a group leader, so pgid == pid.
+            // setpgid(0,0) made the child a group leader, so pgid == pid.
             BACKEND_PGID.store(child.id() as i32, Ordering::SeqCst);
             if !wait_for_ports(&[API_PORT, PANEL_PORT], Duration::from_secs(90)) {
                 eprintln!("backend did not come up in time");
