@@ -16,6 +16,7 @@
 // the join is exact because the clocks match.
 
 import AVFoundation
+import CoreGraphics
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
@@ -107,7 +108,125 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
 // MARK: - Helpers
 
-func err(_ s: String) { FileHandle.standardError.write("\(s)\n".data(using: .utf8)!) }
+/// Mirrors stderr into a persistent log. The recorder runs as a child of the
+/// desktop shell, where nobody sees its stderr — and every capture bug so far has
+/// been invisible rather than loud.
+let logURL: URL? = {
+    let dir = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/SumMeet")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let url = dir.appendingPathComponent("recorder.log")
+    if !FileManager.default.fileExists(atPath: url.path) {
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+    }
+    return url
+}()
+
+func err(_ s: String) {
+    FileHandle.standardError.write("\(s)\n".data(using: .utf8)!)
+    guard let logURL, let h = try? FileHandle(forWritingTo: logURL) else { return }
+    defer { try? h.close() }
+    try? h.seekToEnd()
+    let stamp = ISO8601DateFormatter().string(from: Date())
+    try? h.write(contentsOf: "\(stamp) \(s)\n".data(using: .utf8)!)
+}
+
+/// ScreenCaptureKit's `captureMicrophone` does *not* request microphone access on
+/// our behalf: it just yields nothing useful if we lack it. No prompt, no orange
+/// indicator, no error — which is precisely the failure we shipped. Ask for the
+/// grant ourselves, and treat "denied" as fatal rather than recording half a
+/// meeting.
+@available(macOS 15.0, *)
+func requireMicrophone() async {
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized:
+        err("microphone: authorized")
+    case .notDetermined:
+        err("microphone: requesting access…")
+        if await AVCaptureDevice.requestAccess(for: .audio) {
+            err("microphone: granted")
+        } else {
+            err("microphone: DENIED by the user")
+            print("MIC_DENIED=1")
+            exit(6)
+        }
+    case .denied, .restricted:
+        err("""
+            MICROPHONE ACCESS DENIED.
+            Open System Settings → Privacy & Security → Microphone and enable SumMeet.
+            If SumMeet is not listed, you launched the bare binary: macOS grants the
+            microphone to the responsible process, which must be a signed .app bundle.
+            Build it with apps/desktop/bundle.sh and launch SumMeet.app.
+            """)
+        print("MIC_DENIED=1")
+        exit(6)
+    @unknown default:
+        err("microphone: unknown authorization status")
+    }
+}
+
+/// Same story as the microphone: SCShareableContent throws a localised, opaque
+/// "user declined TCC" if Screen Recording is missing. Ask up front, and explain
+/// the ad-hoc-signing catch — TCC keys the grant to the binary's cdhash, so every
+/// rebuild looks like a brand-new app and silently loses the permission.
+func requireScreenRecording() {
+    if CGPreflightScreenCaptureAccess() {
+        err("screen recording: authorized")
+        return
+    }
+    err("screen recording: requesting access…")
+    if CGRequestScreenCaptureAccess() {
+        err("screen recording: granted")
+        return
+    }
+    err("""
+        SCREEN RECORDING ACCESS DENIED.
+        System audio is captured through ScreenCaptureKit, so SumMeet needs
+        "Screen & System Audio Recording" — it never records the screen (the video
+        plane is 2x2 pixels and thrown away).
+        Enable SumMeet in System Settings → Privacy & Security → Screen & System
+        Audio Recording, then reopen the app.
+        Note: rebuilding the app invalidates the grant (ad-hoc signatures are keyed
+        by binary hash); remove the stale SumMeet entry and add the new one.
+        """)
+    print("SCREEN_DENIED=1")
+    exit(8)
+}
+
+/// Zero-lag Pearson correlation between the two captured sources, over the first
+/// `limit` frames. If the microphone output is secretly a copy of the system mix,
+/// this reads ~1.0. Real speech (even with speaker bleed, which arrives delayed)
+/// stays well below that.
+func correlation(_ a: URL, _ b: URL, limitFrames: Int = 48_000 * 30) -> Double? {
+    func mono(_ url: URL) -> [Double]? {
+        guard let f = try? AVAudioFile(forReading: url) else { return nil }
+        let frames = AVAudioFrameCount(min(Int(f.length), limitFrames))
+        guard frames > 0,
+              let buf = AVAudioPCMBuffer(pcmFormat: f.processingFormat, frameCapacity: frames),
+              (try? f.read(into: buf, frameCount: frames)) != nil,
+              let data = buf.floatChannelData else { return nil }
+        let ch = Int(f.processingFormat.channelCount)
+        let n = Int(buf.frameLength)
+        return (0..<n).map { i in
+            var s = 0.0
+            for c in 0..<ch { s += Double(data[c][i]) }
+            return s / Double(ch)
+        }
+    }
+    guard let x = mono(a), let y = mono(b) else { return nil }
+    let n = min(x.count, y.count)
+    guard n > 4_800 else { return nil } // < 0.1 s: nothing to conclude
+
+    let mx = x.prefix(n).reduce(0, +) / Double(n)
+    let my = y.prefix(n).reduce(0, +) / Double(n)
+    var num = 0.0, dx = 0.0, dy = 0.0
+    for i in 0..<n {
+        let a = x[i] - mx, b = y[i] - my
+        num += a * b; dx += a * a; dy += b * b
+    }
+    guard dx > 0, dy > 0 else { return nil }
+    return num / (dx * dy).squareRoot()
+}
 
 /// Joins the two mono/stereo sources into the layout the pipeline expects:
 /// left = system (others), right = mic (you). See CHANNEL_OTHERS / CHANNEL_SELF.
@@ -210,12 +329,18 @@ struct Main {
         try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let sysURL = tmp.appendingPathComponent("system.wav")
         let micURL = tmp.appendingPathComponent("mic.wav")
-        defer { try? FileManager.default.removeItem(at: tmp) }
+        // Diagnostics: keep the un-joined sources to inspect each channel alone.
+        let keepTemp = ProcessInfo.processInfo.environment["SUMMEET_KEEP_TEMP"] == "1"
+        defer { if !keepTemp { try? FileManager.default.removeItem(at: tmp) } }
+        if keepTemp { err("keeping temp sources in \(tmp.path)") }
 
         guard #available(macOS 15.0, *) else {
             err("needs macOS 15+ (SCStream microphone capture)")
             exit(1)
         }
+
+        requireScreenRecording()
+        await requireMicrophone()
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
@@ -289,6 +414,23 @@ struct Main {
                     """)
                 print("MIC_SILENT=1")
                 exit(5)
+            }
+
+            // If the "microphone" track is really the system mix wearing a costume,
+            // every segment gets attributed to you — a stranger's words signed with
+            // your name. That is worse than no attribution, so refuse to ship it.
+            if let r = correlation(sysURL, micURL) {
+                err(String(format: "  channel correlation: %.4f", r))
+                print(String(format: "CHANNEL_CORRELATION=%.4f", r))
+                if abs(r) > 0.95 {
+                    err("""
+                        MICROPHONE IS A DUPLICATE OF THE SYSTEM AUDIO (r=\(String(format: "%.4f", r))).
+                        The stream handed us the system mix on the microphone output, so
+                        every word would be attributed to you. Refusing to write.
+                        """)
+                    print("MIC_DUPLICATE=1")
+                    exit(7)
+                }
             }
 
             try joinStereo(system: sysURL, mic: micURL, out: outURL)

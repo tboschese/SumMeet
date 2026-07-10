@@ -185,6 +185,40 @@ const ENERGY_SAMPLE_RATE = 8000; // plenty for loudness; keeps the decode cheap
 const SELF_DOMINANCE = 1.5;
 /** Below this RMS both channels are effectively silence → unknown speaker. */
 const SILENCE_RMS = 120; // int16 scale
+/** Your voice must beat the *predicted echo* by this much to count as "you". */
+const ECHO_MARGIN = 2;
+/** Too few loud windows to fit a gain — assume headphones (no echo). */
+const ECHO_MIN_WINDOWS = 20;
+/** A quiet quantile of mic/system: the moments you weren't talking. */
+const ECHO_GAIN_QUANTILE = 0.2;
+/** Beyond this the "echo" is really a mic pointed at a speaker at full blast. */
+const MAX_ECHO_GAIN = 3;
+
+/**
+ * When you listen on speakers, the mic re-records everyone else. That echo scales
+ * with the output volume: measured on an M2 Pro, the mic/system energy ratio ran
+ * 0.09 at volume 30 but 1.27 at volume 100 — past a fixed 1.5 threshold the
+ * meeting's own audio starts getting signed with your name.
+ *
+ * Echo is roughly a constant gain on the system signal, so estimate that gain
+ * from the audio itself: over windows where the system is clearly playing, the
+ * *quiet* quantile of mic/system is the ratio when you were silent — i.e. the
+ * echo. Your actual voice then has to clear that, not a constant. On headphones
+ * the gain collapses to ~0 and the old threshold applies unchanged.
+ */
+export function estimateEchoGain(left: Float64Array, right: Float64Array): number {
+  const ratios: number[] = [];
+  const n = Math.min(left.length, right.length);
+  for (let i = 0; i < n; i++) {
+    const l = left[i]!;
+    if (l < SILENCE_RMS * 2) continue; // system not clearly playing: tells us nothing
+    ratios.push(right[i]! / l);
+  }
+  if (ratios.length < ECHO_MIN_WINDOWS) return 0;
+  ratios.sort((a, b) => a - b);
+  const g = ratios[Math.floor(ratios.length * ECHO_GAIN_QUANTILE)]!;
+  return Math.min(g, MAX_ECHO_GAIN);
+}
 
 /** Number of audio channels, via ffprobe. Mono audio can't be diarized this way. */
 export async function probeChannels(filePath: string): Promise<number> {
@@ -276,17 +310,22 @@ function voteSpeaker(
   startSec: number,
   endSec: number,
   windowSec: number,
+  echoGain: number,
 ): "self" | "others" | null {
   const from = Math.max(0, Math.floor(startSec / windowSec));
   const to = Math.min(left.length, Math.ceil(endSec / windowSec));
   let selfWins = 0;
   let othersWins = 0;
 
+  // On speakers the mic already carries `echoGain × left`; anything at or below
+  // that is the meeting talking to itself, not you.
+  const selfThreshold = Math.max(SELF_DOMINANCE, echoGain * ECHO_MARGIN);
+
   for (let i = from; i < to; i++) {
     const l = left[i]!;
     const r = right[i]!;
     if (Math.max(l, r) < SILENCE_RMS) continue; // silence
-    if (r > l * SELF_DOMINANCE) selfWins++;
+    if (r > l * selfThreshold) selfWins++;
     else if (l > r * SELF_DOMINANCE) othersWins++;
     // otherwise: both active (speakerphone bleed / crosstalk) — no vote
   }
@@ -314,9 +353,11 @@ export async function assignSpeakers(
   const { left, right, windowSec } = await computeChannelEnergy(filePath);
   if (left.length === 0) return segments;
 
+  const echoGain = estimateEchoGain(left, right);
+
   return segments.map((seg) => ({
     ...seg,
-    speaker: voteSpeaker(left, right, seg.start, seg.end, windowSec),
+    speaker: voteSpeaker(left, right, seg.start, seg.end, windowSec, echoGain),
   }));
 }
 

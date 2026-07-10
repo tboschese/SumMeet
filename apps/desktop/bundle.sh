@@ -56,8 +56,26 @@ cp "$ROOT/apps/macos/recorder/build/recorder" "$APP/Contents/MacOS/recorder"
 cp "$HERE/src-tauri/icons/icon.png" "$APP/Contents/Resources/icon.png" 2>/dev/null || true
 
 echo "→ signing (ad-hoc, with the bundle's Info.plist)"
-codesign --force --sign - "$APP/Contents/MacOS/recorder"
-codesign --force --sign - "$APP"
+# A stable identifier, not the default hash-of-the-path one: TCC keys its grant on
+# it, so an unstable identifier means the microphone permission silently resets on
+# every rebuild.
+codesign --force --sign - --identifier com.summeet.recorder "$APP/Contents/MacOS/recorder"
+codesign --force --sign - --identifier com.summeet.app "$APP"
+
+# TCC pins an ad-hoc signature to the binary's cdhash, so a rebuilt app is a
+# *different* app to the permission system while still showing the old, matching
+# name in System Settings. The user then sees "SumMeet" ticked and gets prompted
+# anyway, and no grant ever sticks. Clear our own stale entries so the next launch
+# asks once, cleanly. Scoped to our bundle ids; nothing else is touched.
+if [ "${SUMMEET_KEEP_TCC:-0}" != "1" ]; then
+  echo "→ clearing stale TCC entries for com.summeet.* (ad-hoc signatures are cdhash-pinned)"
+  for id in com.summeet.app com.summeet.recorder; do
+    for svc in ScreenCapture Microphone; do
+      tccutil reset "$svc" "$id" >/dev/null 2>&1 || true
+    done
+  done
+fi
 
 echo "✓ $APP"
 echo "  open with:  open \"$APP\""
+echo "  macOS will ask for Screen Recording + Microphone on the first recording."

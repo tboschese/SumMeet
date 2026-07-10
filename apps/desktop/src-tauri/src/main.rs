@@ -223,7 +223,7 @@ fn finish_recorder(mut child: Child) -> Result<String, String> {
             .collect::<Vec<_>>()
             .join(" ");
         return Err(format!(
-            "recorder failed ({}): {}",
+            "recorder failed ({}): {} — full log at ~/Library/Logs/SumMeet/recorder.log",
             status.code().unwrap_or(-1),
             if tail.is_empty() { "unknown error" } else { &tail }
         ));
