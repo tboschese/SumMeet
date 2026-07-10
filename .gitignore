@@ -24,3 +24,7 @@ out/
 
 # Rust / Tauri build output
 apps/desktop/src-tauri/target/
+
+# Native recorder build output
+apps/macos/recorder/build/
+apps/macos/spike/spike

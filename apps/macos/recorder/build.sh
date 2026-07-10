@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Builds the native recorder into a signed .app bundle.
+#
+# The bundle is not cosmetic: macOS grants Screen Recording and Microphone access
+# per code-signed bundle identifier. A bare binary inherits whatever the launching
+# terminal was granted — fragile, invisible to the user, and impossible to revoke
+# cleanly. Ship signed.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+APP="${1:-$HERE/build/SumMeet Recorder.app}"
+BIN="$HERE/build/recorder"
+
+mkdir -p "$HERE/build" "$APP/Contents/MacOS"
+
+echo "→ compiling"
+swiftc -O -parse-as-library "$HERE/recorder.swift" -o "$BIN" \
+  -framework ScreenCaptureKit -framework AVFoundation
+
+cat > "$APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>recorder</string>
+  <key>CFBundleIdentifier</key><string>com.summeet.recorder</string>
+  <key>CFBundleName</key><string>SumMeet Recorder</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>LSMinimumSystemVersion</key><string>15.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>SumMeet records your voice alongside the meeting audio, so your own commitments are captured.</string>
+</dict>
+PLIST
+echo "</plist>" >> "$APP/Contents/Info.plist"
+
+cp "$BIN" "$APP/Contents/MacOS/recorder"
+
+echo "→ signing (ad-hoc)"
+codesign --force --sign - --options runtime "$APP" 2>/dev/null || codesign --force --sign - "$APP"
+
+echo "✓ $APP"
+echo "  run: \"$APP/Contents/MacOS/recorder\" out.wav 5"
