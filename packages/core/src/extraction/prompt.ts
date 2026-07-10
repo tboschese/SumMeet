@@ -18,7 +18,7 @@ const FIELD_SPEC: Record<string, string> = {
     {
       "task": string,                   // the commitment, imperative voice
       "owner": string | null,           // person/role if inferable, else null
-      "dueDate": string | null,         // ISO date OR natural language ("next Friday"), else null
+      "dueDate": string | null,         // ISO date (YYYY-MM-DD), else null
       "priority": "high" | "medium" | "low" | null,
       "sourceQuote": string | null      // verbatim transcript span it came from
     }
@@ -99,6 +99,12 @@ export interface PromptOptions {
   speakerLabelled?: boolean;
   /** Sections the user asked for, in their order. Defaults to the classic set. */
   sections?: SectionKey[];
+  /**
+   * When the meeting happened, ISO. Without it the model has no idea what "next
+   * Monday" means and invents one — a real recording came back with a due date three
+   * years in the past.
+   */
+  meetingDate?: Date;
 }
 
 /** Build the system prompt for exactly the requested sections. */
@@ -129,11 +135,65 @@ Include every key listed above and no others.
 Rules:
 ${extraRules}
 - Never fabricate an owner, a date, a number or a "sourceQuote". null (or an empty array) is a valid, expected answer.
+${dateRule(opts.meetingDate, opts.outputLanguage)}
 - "sourceQuote" is your evidence: copy the single verbatim transcript span the item came from. Use null only when there is genuinely no supporting span — an item with a clear basis in the transcript but a null sourceQuote is a mistake.
 - Infer "priority"/"severity" only from real urgency cues in the transcript — a hard deadline, words like "urgent"/"critical"/"blocker", or something blocking others. With no such signal, use null; do not guess.
 ${languageRule(opts.outputLanguage)}${speakerRule(opts.speakerLabelled)}
 - The rules above are language-agnostic — apply them whatever the meeting's language.
 - Output the JSON object only. No commentary, no code fences.${glossaryRule(opts.glossary)}`;
+}
+
+const WEEKDAYS = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+] as const;
+
+const iso = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const addDays = (d: Date, n: number): Date => {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + n);
+  return copy;
+};
+
+/**
+ * The transcript says "next Monday"; only the meeting's own date says which Monday.
+ *
+ * Anchoring alone is not enough: given the date and the weekday, a 70B model still
+ * answered "next Monday" with the following *Friday*. Calendar arithmetic is cheap and
+ * exact here and expensive and unreliable in a language model, so resolve every weekday
+ * ourselves and hand over the answers. All the model has to do is match a phrase.
+ */
+function dateRule(meetingDate?: Date, language?: string): string {
+  if (!meetingDate) {
+    return '- "dueDate" must be null unless the transcript states an absolute date. Never compute one.';
+  }
+  const today = WEEKDAYS[meetingDate.getDay()]!;
+
+  // The next occurrence of each weekday, strictly after the meeting. Named in the
+  // meeting's own language as well as English: a Portuguese transcript says "na
+  // segunda", and against an English-only table the model reached for the meeting's
+  // own weekday instead — an answer four days wrong.
+  const upcoming = WEEKDAYS.map((name, index) => {
+    const delta = (index - meetingDate.getDay() + 7) % 7 || 7;
+    const date = addDays(meetingDate, delta);
+    const local = language
+      ? date.toLocaleDateString(language, { weekday: "long" })
+      : undefined;
+    const label = local && local.toLowerCase() !== name.toLowerCase() ? `${name}/${local}` : name;
+    return `${label} = ${iso(date)}`;
+  }).join(", ");
+
+  const endOfMonth = new Date(meetingDate.getFullYear(), meetingDate.getMonth() + 1, 0);
+
+  return (
+    `- The meeting took place on ${iso(meetingDate)}, a ${today}. Write "dueDate" as ` +
+    `YYYY-MM-DD, resolved against that date. Do not compute dates yourself — use these:\n` +
+    `    today = ${iso(meetingDate)}, tomorrow = ${iso(addDays(meetingDate, 1))}, ` +
+    `end of this month = ${iso(endOfMonth)}\n` +
+    `    the next: ${upcoming}\n` +
+    `  A vague deadline ("soon", "later", "next quarter") is null. Never guess a date.`
+  );
 }
 
 export function buildUserPrompt(transcript: string): string {

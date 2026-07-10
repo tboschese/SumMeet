@@ -83,6 +83,31 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
+// Screen Recording gates the *system audio* tap: ScreenCaptureKit is how we hear the
+// other participants. Ask on launch, from the app itself, rather than letting the
+// recorder discover it mid-meeting — and note that macOS only honours a fresh grant
+// after the process restarts, so say so instead of silently capturing nothing.
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+fn ensure_screen_recording() {
+    unsafe {
+        if CGPreflightScreenCaptureAccess() {
+            return;
+        }
+        if CGRequestScreenCaptureAccess() {
+            return;
+        }
+    }
+    eprintln!(
+        "Screen Recording not granted. Approve SumMeet in System Settings → Privacy & \
+         Security → Screen & System Audio Recording, then reopen the app."
+    );
+}
+
 /// Alongside the recorder's log, so both halves of a failed meeting are in one place.
 fn backend_log() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
@@ -544,6 +569,7 @@ fn main() {
             *guard = started;
             drop(guard);
 
+            ensure_screen_recording();
             start_menu_bar_indicator(app.handle().clone())?;
             Ok(())
         })

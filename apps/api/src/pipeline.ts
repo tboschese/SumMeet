@@ -75,6 +75,7 @@ export async function extractAndPersist(
     glossary: glossary(settings),
     speakerLabelled: labelled,
     sections: sections(settings),
+    meetingDate: meeting.createdAt,
   });
   const data = stringifyInsights(insights);
   await db.insights.upsert({
@@ -228,6 +229,7 @@ export async function runPipeline(
         glossary: glossary(settings),
         speakerLabelled: prompted.labelled,
         sections: sections(settings),
+      meetingDate: meeting.createdAt,
       },
     );
 
