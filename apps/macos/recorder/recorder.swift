@@ -28,6 +28,11 @@ import ScreenCaptureKit
 final class ChannelWriter {
     private let url: URL
     private var file: AVAudioFile?
+    /// The format the file was opened with. Every later buffer must match it.
+    private var fileFormat: AVAudioFormat?
+    private var converter: AVAudioConverter?
+    private(set) var convertedBuffers = 0
+    private(set) var droppedBuffers = 0
     private(set) var sumSquares: Double = 0
     private(set) var sampleCount = 0
     private(set) var peak: Float = 0
@@ -69,32 +74,91 @@ final class ChannelWriter {
             sampleBuffer, at: 0, frameCount: Int32(frames),
             into: pcm.mutableAudioBufferList) == noErr else { return }
 
+        append(pcm)
+    }
+
+    /// Split out from the CMSampleBuffer path so the format-change handling can be
+    /// exercised without a live capture session (see `--selftest`).
+    func append(_ pcm: AVAudioPCMBuffer) {
         lock.lock()
         defer { lock.unlock() }
 
-        if let data = pcm.floatChannelData {
+        if file == nil {
+            file = try? AVAudioFile(forWriting: url, settings: pcm.format.settings,
+                                    commonFormat: .pcmFormatFloat32,
+                                    interleaved: pcm.format.isInterleaved)
+            // Pin to what the *file* will accept, not to the first buffer: the file
+            // is opened as float32 regardless, so an Int16 source would otherwise
+            // compare equal to itself and be written into a format it doesn't match.
+            fileFormat = file?.processingFormat
+        }
+        guard let file, let fileFormat else { return }
+
+        // Connecting headphones switches the input device mid-stream and the buffers
+        // change shape — a real recording died here, on the `mic` queue. AVAudioFile
+        // does not merely fail on a mismatch: AudioToolbox asserts and kills the
+        // process (EXC_BREAKPOINT in ExtAudioFile::WriteInputProc), which no `try?`
+        // can catch. Convert instead; drop the buffer if even that fails, because a
+        // gap in the audio beats losing the whole meeting.
+        let toWrite: AVAudioPCMBuffer
+        if pcm.format == fileFormat {
+            toWrite = pcm
+        } else if let converted = convert(pcm, to: fileFormat) {
+            convertedBuffers += 1
+            toWrite = converted
+        } else {
+            droppedBuffers += 1
+            return
+        }
+
+        // Measure the converted buffer: it is always float32, so an Int16 source
+        // still contributes energy instead of silently reading as pure silence —
+        // which the pipeline would have reported as a dead microphone.
+        if let data = toWrite.floatChannelData {
             var blockSumSquares: Double = 0
-            for ch in 0..<Int(format.channelCount) {
+            for ch in 0..<Int(toWrite.format.channelCount) {
                 let buf = data[ch]
-                for i in 0..<Int(frames) {
+                for i in 0..<Int(toWrite.frameLength) {
                     let v = buf[i]
                     blockSumSquares += Double(v * v)
                     peak = max(peak, abs(v))
                 }
             }
-            let n = Int(frames) * Int(format.channelCount)
+            let n = Int(toWrite.frameLength) * Int(toWrite.format.channelCount)
             sumSquares += blockSumSquares
             sampleCount += n
             windowSumSquares += blockSumSquares
             windowCount += n
         }
 
-        if file == nil {
-            file = try? AVAudioFile(forWriting: url, settings: format.settings,
-                                    commonFormat: .pcmFormatFloat32,
-                                    interleaved: format.isInterleaved)
+        try? file.write(from: toWrite)
+    }
+
+    /// Resample/remix a buffer into the format the file was opened with.
+    private func convert(_ pcm: AVAudioPCMBuffer, to target: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if converter?.inputFormat != pcm.format || converter?.outputFormat != target {
+            converter = AVAudioConverter(from: pcm.format, to: target)
         }
-        try? file?.write(from: pcm)
+        guard let converter else { return nil }
+
+        let ratio = target.sampleRate / pcm.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(pcm.frameLength) * ratio) + 1024
+        guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else {
+            return nil
+        }
+
+        var consumed = false
+        var error: NSError?
+        converter.convert(to: output, error: &error) { _, status in
+            if consumed {
+                status.pointee = .noDataNow
+                return nil
+            }
+            consumed = true
+            status.pointee = .haveData
+            return pcm
+        }
+        return error == nil && output.frameLength > 0 ? output : nil
     }
 
     func close() { lock.lock(); file = nil; lock.unlock() }
@@ -262,8 +326,12 @@ func joinStereo(system: URL, mic: URL, out: URL) throws {
         "ffmpeg", "-y", "-v", "error",
         "-i", system.path,
         "-i", mic.path,
+        // aformat downmixes whatever arrives; `pan=…c1` would fail outright on a mono
+        // source, and a source can be mono: the file takes the shape of its first
+        // buffer, and a device switch decides what that is.
         "-filter_complex",
-        "[0:a]pan=mono|c0=0.5*c0+0.5*c1[l];[1:a]pan=mono|c0=c0[r];[l][r]join=inputs=2:channel_layout=stereo[a]",
+        "[0:a]aformat=channel_layouts=mono[l];[1:a]aformat=channel_layouts=mono[r];"
+            + "[l][r]join=inputs=2:channel_layout=stereo[a]",
         "-map", "[a]", "-ar", "48000", out.path,
     ]
     try p.run()
@@ -327,6 +395,85 @@ func upload(file: URL, apiBase: String, title: String) throws -> String {
 /// Kept in sync by hand with SUMMEET_STEREO_LAYOUT in packages/core/src/media.ts.
 let SUMMEET_STEREO_LAYOUT = "summeet-stereo-v1"
 
+// MARK: - Self test
+
+/// Connecting headphones switches the input device mid-meeting and the buffers change
+/// shape. A real recording died exactly there, on the `mic` queue, inside
+/// ExtAudioFile::WriteInputProc — an AudioToolbox assert, not a Swift error, so
+/// `try?` was never going to save it.
+///
+/// Measured against a float32/48k/stereo file, writing a buffer of:
+///   • Int16 **planar**  → aborts the process (this is the crash)
+///   • Int16 interleaved, Int32, float mono, float interleaved → throws (buffer lost)
+///   • float at 44.1 kHz, or float64 → *accepted*, written at the wrong rate/depth,
+///     and nothing anywhere complains
+///
+/// So neither "it threw" nor "it returned" can be trusted. The writer converts every
+/// buffer into the file's own processingFormat instead. Both traps are exercised.
+func selfTest() -> Int32 {
+    func float(rate: Double, frames: AVAudioFrameCount) -> AVAudioPCMBuffer {
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate,
+                                   channels: 2, interleaved: false)!
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buf.frameLength = frames
+        for ch in 0..<2 {
+            for i in 0..<Int(frames) { buf.floatChannelData![ch][i] = sin(Float(i) * 0.05) * 0.5 }
+        }
+        return buf
+    }
+    /// Planar, not interleaved: interleaved Int16 merely throws, planar Int16 aborts.
+    func int16Planar(rate: Double, frames: AVAudioFrameCount) -> AVAudioPCMBuffer {
+        let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: rate,
+                                   channels: 2, interleaved: false)!
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buf.frameLength = frames
+        for ch in 0..<2 {
+            for i in 0..<Int(frames) {
+                buf.int16ChannelData![ch][i] = Int16(sin(Float(i) * 0.05) * 12000)
+            }
+        }
+        return buf
+    }
+
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("summeet-selftest-\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let w = ChannelWriter(url: url)
+    w.append(float(rate: 48_000, frames: 4800))   // file opens: float32 48k stereo
+    w.append(int16Planar(rate: 48_000, frames: 4800))  // headset: Int16 planar — aborts
+    w.append(float(rate: 44_100, frames: 4410))   // and a different rate
+    w.close()
+
+    var failures = 0
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+        if !ok { failures += 1 }
+        err("  \(ok ? "✓" : "✗") \(name)\(detail.isEmpty ? "" : "  \(detail)")")
+    }
+
+    // Reaching this line at all is the regression: the old writer aborted above.
+    check("survived a mid-stream format change", true)
+    check("converted both odd buffers", w.convertedBuffers == 2, "converted=\(w.convertedBuffers)")
+    check("dropped nothing", w.droppedBuffers == 0, "dropped=\(w.droppedBuffers)")
+    // The Int16 buffer must contribute energy, not read as silence: a "silent" mic
+    // is exactly the failure the pipeline reports as a dead microphone.
+    check("measured the Int16 buffer's energy", w.rms > 0.01, String(format: "rms=%.4f", w.rms))
+
+    if let file = try? AVAudioFile(forReading: url) {
+        // The resampler is primed on its first call and emits a short block. The
+        // converter is cached, so that loss happens once at the switch, not per
+        // buffer — otherwise the two channels would drift apart.
+        check("wrote all three buffers", file.length > 12_000, "frames=\(file.length)")
+        check("kept the file's original rate",
+              file.processingFormat.sampleRate == 48_000, "\(file.processingFormat.sampleRate) Hz")
+    } else {
+        check("wrote a readable file", false)
+    }
+
+    err(failures == 0 ? "SELFTEST PASS" : "SELFTEST FAILED (\(failures))")
+    return failures == 0 ? 0 : 1
+}
+
 // MARK: - Main
 
 @main
@@ -339,6 +486,8 @@ struct Main {
             args.removeSubrange(i...(i + 1))
             return v
         }
+        if args.contains("--selftest") { exit(selfTest()) }
+
         let apiBase = take("--api")
         let title = take("--title") ?? "Meeting"
 
@@ -427,6 +576,15 @@ struct Main {
                        rec.system.rms, rec.system.peak, rec.system.sampleCount))
             err(String(format: "  mic:    RMS %.6f peak %.4f (%d samples)",
                        rec.mic.rms, rec.mic.peak, rec.mic.sampleCount))
+
+            // A device change mid-meeting (headphones in or out) is normal; losing
+            // buffers to it is not. Say so rather than shipping a quiet gap.
+            for (name, w) in [("system", rec.system), ("mic", rec.mic)] {
+                if w.convertedBuffers > 0 || w.droppedBuffers > 0 {
+                    err("  \(name): \(w.convertedBuffers) buffers converted, "
+                        + "\(w.droppedBuffers) dropped (audio device changed mid-recording)")
+                }
+            }
 
             guard rec.system.wroteAnything || rec.mic.wroteAnything else {
                 err("captured nothing"); exit(3)
