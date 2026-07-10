@@ -20,6 +20,12 @@ export interface TranscribeOptions {
    * the cheapest quality win for small local models (SPEC A6).
    */
   prompt?: string;
+  /**
+   * Only for `summeet-stereo-v1`: the channels are two people, so equalise them
+   * before the mono downmix. On arbitrary stereo (music, a panned podcast) the
+   * channels carry no such meaning and balancing them would be nonsense.
+   */
+  balanceChannels?: boolean;
 }
 
 export interface TranscriptionProvider {

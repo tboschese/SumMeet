@@ -387,32 +387,41 @@ const DEAD_CHANNEL: f32 = 0.001;
 /// Don't cry "dead" before the channel has had a moment to produce anything.
 const GRACE_SECS: u64 = 4;
 
-/// RMS is linear but hearing is not: a linear bar sits at zero for normal speech.
-fn meter(level: f32) -> String {
-    const BARS: usize = 4;
+/// One glyph per channel, in the ascending-bars language of the SumMeet mark. RMS is
+/// linear but hearing is not: a linear scale sits on the bottom block through normal
+/// speech, so map decibels.
+fn meter(level: f32) -> char {
+    const BLOCKS: [char; 7] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇'];
     let db = if level <= 0.0 {
         -100.0
     } else {
         20.0 * level.log10()
     };
-    let filled = (((db + 60.0) / 50.0).clamp(0.0, 1.0) * BARS as f32).round() as usize;
-    "▮".repeat(filled) + &"▯".repeat(BARS - filled)
+    let step = (((db + 60.0) / 50.0).clamp(0.0, 1.0) * (BLOCKS.len() - 1) as f32).round() as usize;
+    BLOCKS[step]
 }
 
-/// A channel that has been silent for the whole window, not merely between words.
-/// Decayed peak, so a pause in the conversation never reads as a dead channel.
-fn channel_label(icon: &str, level: f32, recent_peak: f32, elapsed: u64) -> String {
+/// A channel silent for the whole recording, not merely between words. The peak
+/// decays, so a pause in the conversation never reads as a dead channel.
+fn channel_label(level: f32, recent_peak: f32, elapsed: u64) -> char {
     if elapsed >= GRACE_SECS && recent_peak < DEAD_CHANNEL {
-        format!("{icon}⚠️")
+        '!'
     } else {
-        format!("{icon}{}", meter(level))
+        meter(level)
     }
 }
 
+/// A macOS template image: the mark in black, transparency doing the drawing. The
+/// system recolours it for the light and dark menu bar — which is exactly why emoji
+/// never belong here, since it cannot recolour those.
+const TRAY_ICON: &[u8] = include_bytes!("../icons/tray-icon@2x.png");
+
 fn start_menu_bar_indicator(handle: tauri::AppHandle) -> tauri::Result<()> {
     let mut tray = tauri::tray::TrayIconBuilder::with_id(TRAY_ID);
-    if let Some(icon) = handle.default_window_icon().cloned() {
-        tray = tray.icon(icon).icon_as_template(true);
+    match tauri::image::Image::from_bytes(TRAY_ICON) {
+        Ok(icon) => tray = tray.icon(icon).icon_as_template(true),
+        // Losing the icon is cosmetic; losing the meter is not. Carry on with text.
+        Err(e) => eprintln!("tray icon failed to load: {e}"),
     }
     tray.build(&handle)?;
 
@@ -440,13 +449,14 @@ fn start_menu_bar_indicator(handle: tauri::AppHandle) -> tauri::Result<()> {
             mic_peak = (mic_peak * 0.97).max(status.mic);
 
             let clock = format!("{}:{:02}", status.elapsed_secs / 60, status.elapsed_secs % 60);
+            // Two glyphs, others then you — the order of the stereo layout itself.
             let title = if status.stale {
-                format!("⏺ {clock}  ⚠️")
+                format!("{clock} !")
             } else {
                 format!(
-                    "⏺ {clock}  {}  {}",
-                    channel_label("🔈", status.system, system_peak, status.elapsed_secs),
-                    channel_label("🎙", status.mic, mic_peak, status.elapsed_secs),
+                    "{clock} {}{}",
+                    channel_label(status.system, system_peak, status.elapsed_secs),
+                    channel_label(status.mic, mic_peak, status.elapsed_secs),
                 )
             };
             let _ = tray.set_title(Some(&title));
@@ -540,19 +550,21 @@ mod tests {
 
     #[test]
     fn the_meter_spans_silence_to_speech() {
-        assert_eq!(meter(0.0), "▯▯▯▯");
-        // Room tone reads low but present; normal speech fills the bar.
-        assert_eq!(meter(0.3), "▮▮▮▮");
-        assert!(meter(0.005).starts_with('▮'));
+        assert_eq!(meter(0.0), '▁');
+        assert_eq!(meter(0.3), '▇');
+        // Room tone (~0.005) must be visibly above silence, or a live mic looks dead.
+        assert!(meter(0.005) > '▁');
+        // And speech must be visibly above room tone.
+        assert!(meter(0.05) > meter(0.005));
     }
 
     #[test]
     fn a_dead_channel_warns_only_after_the_grace_period() {
         // A silent pause between sentences is not a dead microphone.
-        assert_eq!(channel_label("m", 0.0, 0.05, 30), "m▯▯▯▯");
+        assert_eq!(channel_label(0.0, 0.05, 30), '▁');
         // Nothing at all since the recording began, though, is.
-        assert_eq!(channel_label("m", 0.0, 0.0, 30), "m⚠️");
-        assert_eq!(channel_label("m", 0.0, 0.0, 1), "m▯▯▯▯");
+        assert_eq!(channel_label(0.0, 0.0, 30), '!');
+        assert_eq!(channel_label(0.0, 0.0, 1), '▁');
     }
 
     use super::*;

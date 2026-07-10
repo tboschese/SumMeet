@@ -53,17 +53,31 @@ function run(
  * Transcode to 16 kHz mono Opus @ 24 kbps (SPEC §7.5) — Whisper's native rate,
  * tiny files. Returns the path to the compressed .opus in `outDir`.
  */
+/** Per-channel weights for the mono downmix. They always sum to at most 1. */
+export interface ChannelBalance {
+  left: number;
+  right: number;
+}
+
 export async function preprocessToOpus(
   inputPath: string,
   outDir: string,
+  balance?: ChannelBalance,
 ): Promise<string> {
   const out = path.join(outDir, "preprocessed.opus");
+  // A plain `-ac 1` averages the channels, so a quiet speaker is buried under a
+  // loud meeting: measured on a real recording, the user's own voice arrived at
+  // RMS 0.0074 against the meeting's 0.0287 and Whisper transcribed only the
+  // meeting. Transcription must not depend on how hot someone's mic gain is.
+  const downmix = balance
+    ? ["-af", `pan=mono|c0=${balance.left.toFixed(4)}*c0+${balance.right.toFixed(4)}*c1`]
+    : ["-ac", "1"];
+
   await run("ffmpeg", [
     "-y",
     "-i",
     inputPath,
-    "-ac",
-    "1",
+    ...downmix,
     "-ar",
     "16000",
     "-c:a",
@@ -385,6 +399,50 @@ function voteSpeaker(
   if (selfWins > othersWins * 1.5) return "self";
   if (othersWins > selfWins * 1.5) return "others";
   return null;
+}
+
+/** How far the quiet channel may be lifted relative to the loud one. */
+const MAX_BALANCE_RATIO = 8;
+
+/**
+ * Weights that make both channels contribute equally to the mono downmix.
+ *
+ * Only *voiced* windows count: averaging in the silence between sentences would
+ * measure how talkative each side was, not how loud. Each channel's weight is
+ * inversely proportional to its speaking loudness, scaled so the sum can't clip.
+ *
+ * Returns null for mono audio, or when the two sides are already comparable.
+ */
+export async function estimateChannelBalance(
+  filePath: string,
+): Promise<ChannelBalance | null> {
+  if ((await probeChannels(filePath)) < 2) return null;
+  const { left, right } = await computeChannelEnergy(filePath);
+  if (left.length === 0) return null;
+
+  const voicedRms = (channel: Float64Array): number => {
+    const bar = voiceThreshold(channel);
+    let sum = 0;
+    let n = 0;
+    for (const rms of channel) {
+      if (rms > bar) {
+        sum += rms * rms;
+        n++;
+      }
+    }
+    return n > 0 ? Math.sqrt(sum / n) : 0;
+  };
+
+  const l = voicedRms(left);
+  const r = voicedRms(right);
+  if (l <= 0 || r <= 0) return null; // one side never spoke: nothing to balance
+
+  // Clamp before inverting, so a nearly-silent channel isn't amplified into noise.
+  const quietest = Math.max(Math.min(l, r), Math.max(l, r) / MAX_BALANCE_RATIO);
+  return {
+    left: (0.5 * quietest) / l,
+    right: (0.5 * quietest) / r,
+  };
 }
 
 /**

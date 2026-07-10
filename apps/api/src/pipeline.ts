@@ -142,6 +142,7 @@ export async function runPipeline(
     const transcript = await transcribeFile(audioPath, transcriber, {
       language: transcriptionHint(settings),
       prompt: glossary(settings),
+      balanceChannels: isSummeetStereoLayout(meeting.channelLayout),
     });
 
     // Who spoke, straight from the stereo channels (left = others, right = you).
