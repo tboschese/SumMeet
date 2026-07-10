@@ -7,14 +7,135 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::io::Read;
+use std::net::TcpStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tauri::Manager;
 
 const API_BASE: &str = "http://localhost:8080";
+const API_PORT: u16 = 8080;
+const PANEL_PORT: u16 = 3000;
 
 #[derive(Default)]
 struct Recording(Mutex<Option<Child>>);
+
+/// The backend we started, if any. We only own it when we spawned it — an already
+/// running `pnpm dev` is left alone, and left running when the app quits.
+#[derive(Default)]
+struct Backend(Mutex<Option<Child>>);
+
+fn port_open(port: u16) -> bool {
+    TcpStream::connect_timeout(
+        &([127, 0, 0, 1], port).into(),
+        Duration::from_millis(300),
+    )
+    .is_ok()
+}
+
+fn wait_for_ports(ports: &[u16], timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if ports.iter().all(|p| port_open(*p)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    false
+}
+
+/// Repo root, so we can run the workspace's dev servers.
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
+}
+
+/// Start the API + panel if they aren't already up, so opening the app is enough
+/// — no `pnpm dev` in another terminal.
+///
+/// `pnpm dev` spawns a tree (concurrently -> next + tsx). Killing only the parent
+/// leaves orphans holding the ports, so put the child in its own process group
+/// and signal the whole group on quit.
+fn ensure_backend() -> Option<Child> {
+    if port_open(API_PORT) && port_open(PANEL_PORT) {
+        return None; // someone else's dev server: not ours to manage
+    }
+
+    let mut cmd = Command::new("pnpm");
+    cmd.arg("dev")
+        .current_dir(repo_root())
+        .env("PATH", augmented_path())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid(); // new process group -> we can kill the whole tree
+            Ok(())
+        });
+    }
+
+    match cmd.spawn() {
+        Ok(child) => {
+            // setsid() made the child a group leader, so pgid == pid.
+            BACKEND_PGID.store(child.id() as i32, Ordering::SeqCst);
+            if !wait_for_ports(&[API_PORT, PANEL_PORT], Duration::from_secs(90)) {
+                eprintln!("backend did not come up in time");
+            }
+            Some(child)
+        }
+        Err(e) => {
+            eprintln!("could not start backend: {e} (is pnpm on PATH?)");
+            None
+        }
+    }
+}
+
+/// The backend's process-group id, readable from a signal handler.
+///
+/// If the app is killed (SIGTERM/SIGINT) rather than quit through the UI, no Tauri
+/// event ever fires and the dev-server tree would survive, holding :3000 and :8080
+/// — the exact orphan problem that plagues `pnpm dev`. A signal handler is the
+/// only place we can still reap it.
+static BACKEND_PGID: AtomicI32 = AtomicI32::new(0);
+
+extern "C" fn reap_backend_on_signal(_sig: i32) {
+    let pgid = BACKEND_PGID.load(Ordering::SeqCst);
+    if pgid > 0 {
+        // killpg and _exit are async-signal-safe; println!/exit() are not.
+        unsafe { libc::killpg(pgid, libc::SIGKILL) };
+    }
+    unsafe { libc::_exit(0) };
+}
+
+fn install_signal_handlers() {
+    unsafe {
+        libc::signal(libc::SIGTERM, reap_backend_on_signal as libc::sighandler_t);
+        libc::signal(libc::SIGINT, reap_backend_on_signal as libc::sighandler_t);
+        libc::signal(libc::SIGHUP, reap_backend_on_signal as libc::sighandler_t);
+    }
+}
+
+/// Signal the whole process group, not just the parent.
+fn stop_backend(child: &mut Child) {
+    unsafe {
+        libc::killpg(child.id() as i32, libc::SIGTERM);
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            _ => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+    unsafe {
+        libc::killpg(child.id() as i32, libc::SIGKILL);
+    }
+    let _ = child.wait();
+    BACKEND_PGID.store(0, Ordering::SeqCst);
+}
 
 /// Locate the Swift recorder.
 ///
@@ -126,16 +247,56 @@ fn is_recording(state: tauri::State<Recording>) -> bool {
     state.0.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
+fn cleanup(handle: &tauri::AppHandle) {
+    // Take each child out from under its lock before waiting on it: holding a
+    // MutexGuard across a multi-second wait pins a borrow of the State temporary.
+    let recording = {
+        let s = handle.state::<Recording>();
+        let child = s.0.lock().ok().and_then(|mut g| g.take());
+        child
+    };
+    if let Some(child) = recording {
+        let _ = finish_recorder(child); // let an in-flight recording finish uploading
+    }
+
+    let backend = {
+        let s = handle.state::<Backend>();
+        let child = s.0.lock().ok().and_then(|mut g| g.take());
+        child
+    };
+    if let Some(mut child) = backend {
+        stop_backend(&mut child); // only ever set when we started it ourselves
+    }
+}
+
 fn main() {
-    tauri::Builder::default()
+    install_signal_handlers();
+
+    let app = tauri::Builder::default()
         .manage(Recording::default())
+        .manage(Backend::default())
+        .setup(|app| {
+            // Block until the panel answers: the webview points at :3000 and would
+            // otherwise load an error page before the server is listening.
+            let started = ensure_backend();
+            let state = app.state::<Backend>();
+            let mut guard = state.0.lock().unwrap();
+            *guard = started;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_recording,
             stop_recording,
             is_recording
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running SumMeet");
+        .build(tauri::generate_context!())
+        .expect("error while building SumMeet");
+
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            cleanup(handle);
+        }
+    });
 }
 
 #[cfg(test)]
@@ -153,6 +314,25 @@ mod tests {
     #[test]
     fn path_carries_homebrew_so_ffmpeg_resolves() {
         assert!(augmented_path().contains("/opt/homebrew/bin"));
+    }
+
+    #[test]
+    fn repo_root_is_the_workspace() {
+        assert!(repo_root().join("pnpm-workspace.yaml").exists());
+    }
+
+    #[test]
+    fn closed_port_reads_as_closed() {
+        // 1 is privileged and never bound by us; a false positive here would make
+        // the app skip starting the backend and load an error page.
+        assert!(!port_open(1));
+    }
+
+    #[test]
+    fn waiting_on_a_closed_port_times_out_rather_than_hanging() {
+        let t0 = std::time::Instant::now();
+        assert!(!wait_for_ports(&[1], Duration::from_millis(600)));
+        assert!(t0.elapsed() < Duration::from_secs(5));
     }
 
     /// End-to-end: spawn the Swift recorder, stop it, and confirm the local API
