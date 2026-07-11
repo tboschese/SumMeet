@@ -285,17 +285,24 @@ fn parse_level(line: &str) -> Option<Levels> {
 
 /// Spawn the recorder; it records until SIGINT, then joins the channels and
 /// uploads. Separate from the Tauri command so it can be tested without a window.
-fn spawn_recorder(title: &str) -> Result<Session, String> {
+fn spawn_recorder(title: &str, mic_device_id: Option<&str>) -> Result<Session, String> {
     let bin =
         recorder_path().ok_or("recorder binary not found — run apps/macos/recorder/build.sh")?;
     let out = std::env::temp_dir().join(format!("summeet-{}.wav", std::process::id()));
 
-    let mut child = Command::new(bin)
+    let mut command = Command::new(bin);
+    command
         .arg(&out)
         .arg("--api")
         .arg(API_BASE)
         .arg("--title")
-        .arg(title)
+        .arg(title);
+    // Empty string means "system default": the recorder falls back to it, so there is
+    // no need to make the caller reason about the difference.
+    if let Some(id) = mic_device_id.filter(|s| !s.is_empty()) {
+        command.arg("--mic-device").arg(id);
+    }
+    let mut child = command
         .env("PATH", augmented_path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -376,13 +383,44 @@ fn finish_recorder(mut session: Session) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn start_recording(state: tauri::State<Recording>, title: String) -> Result<(), String> {
+fn start_recording(
+    state: tauri::State<Recording>,
+    title: String,
+    mic_device_id: Option<String>,
+) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     if guard.is_some() {
         return Err("already recording".into());
     }
-    *guard = Some(spawn_recorder(&title)?);
+    *guard = Some(spawn_recorder(&title, mic_device_id.as_deref())?);
     Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Microphone {
+    id: String,
+    name: String,
+    default: bool,
+}
+
+/// The recorder owns the device list (it is the one that opens them), so ask it
+/// rather than duplicating AVFoundation enumeration here. `--list-mics` prints the
+/// same JSON the picker consumes.
+#[tauri::command]
+fn list_microphones() -> Result<Vec<Microphone>, String> {
+    let bin = recorder_path().ok_or("recorder binary not found")?;
+    let output = Command::new(bin)
+        .arg("--list-mics")
+        .env("PATH", augmented_path())
+        .output()
+        .map_err(|e| format!("could not run recorder: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "recorder --list-mics failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|e| format!("could not parse device list: {e}"))
 }
 
 /// Ask the recorder to stop, wait for it to write + upload, hand back the id.
@@ -577,7 +615,8 @@ fn main() {
             start_recording,
             stop_recording,
             is_recording,
-            capture_status
+            capture_status,
+            list_microphones
         ])
         .build(tauri::generate_context!())
         .expect("error while building SumMeet");
@@ -674,7 +713,7 @@ mod tests {
     #[test]
     #[ignore]
     fn records_and_uploads() {
-        let child = spawn_recorder("cargo test recording").expect("spawn");
+        let child = spawn_recorder("cargo test recording", None).expect("spawn");
         std::thread::sleep(std::time::Duration::from_secs(3));
         let id = finish_recorder(child).expect("finish");
         assert!(!id.is_empty(), "expected a meeting id");

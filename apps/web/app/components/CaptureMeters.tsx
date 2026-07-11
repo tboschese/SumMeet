@@ -13,8 +13,17 @@ import { nativeRecorder, type CaptureStatus } from "@/lib/native";
 
 /** A live channel always carries room tone; below this it isn't quiet, it's off. */
 const DEAD_CHANNEL = 0.001;
+/**
+ * Loudest the mic reached. Below this it captured only faint speech — the real case
+ * was a headset left dangling while output moved to the laptop, peaking at 0.077 where
+ * a mic at the mouth reaches ~0.25. Normal speech clears this easily, so a speaker who
+ * ever talked at a normal level never sees the warning.
+ */
+const WEAK_PEAK = 0.1;
 /** Don't call a channel dead before it has had a moment to produce anything. */
 const GRACE_MS = 4000;
+/** Weak is a slower judgement than dead: give the user time to actually speak. */
+const WEAK_GRACE_MS = 9000;
 /** Below this the system isn't really playing, so it says nothing about echo. */
 const SYSTEM_VOICED = 0.005;
 /** Mic at this fraction of the system's level, while the system plays, is echo. */
@@ -93,9 +102,17 @@ export function CaptureMeters() {
 
   if (!status?.recording) return null;
 
-  const settled = Date.now() - startedAt.current > GRACE_MS;
+  const elapsed = Date.now() - startedAt.current;
+  const settled = elapsed > GRACE_MS;
   const micDead = settled && peaks.current.mic < DEAD_CHANNEL;
   const systemDead = settled && peaks.current.system < DEAD_CHANNEL;
+  // Present but faint: captured, just too quiet to transcribe well. Only after the
+  // longer grace, so a speaker who simply hasn't started yet isn't nagged.
+  const micWeak =
+    !micDead &&
+    elapsed > WEAK_GRACE_MS &&
+    peaks.current.mic >= DEAD_CHANNEL &&
+    peaks.current.mic < WEAK_PEAK;
 
   const warning = status.stale
     ? t("rec.meter.stale")
@@ -105,12 +122,14 @@ export function CaptureMeters() {
         ? t("rec.meter.systemDead")
         : echoing
           ? t("rec.meter.echo")
-          : null;
+          : micWeak
+            ? t("rec.meter.micWeak")
+            : null;
 
   return (
     <div className="mt-3 space-y-1.5">
       <Meter label={t("rec.meter.others")} level={status.system} dead={systemDead} />
-      <Meter label={t("rec.meter.self")} level={status.mic} dead={micDead} />
+      <Meter label={t("rec.meter.self")} level={status.mic} dead={micDead || micWeak} />
       {warning && (
         <p className="pt-1 text-xs text-amber-700">{warning}</p>
       )}

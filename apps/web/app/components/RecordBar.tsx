@@ -10,7 +10,7 @@ import {
 import { CaptureMeters } from "./CaptureMeters";
 import { createMeeting } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { isNativeShell, nativeRecorder } from "@/lib/native";
+import { isNativeShell, nativeRecorder, type Microphone } from "@/lib/native";
 import { formatElapsed, MeetingRecorder, RecorderError } from "@/lib/recorder";
 
 type Mode = "idle" | "recording" | "uploading";
@@ -27,6 +27,29 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
   const [elapsed, setElapsed] = useState(0);
   const [micOn, setMicOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mics, setMics] = useState<Microphone[]>([]);
+  const [micId, setMicId] = useState<string>("");
+
+  // Load the input devices once we know we're in the desktop shell, and preselect
+  // the system default. Refreshed on each idle render of the picker so plugging a
+  // headset in shows up without restarting the app.
+  const loadMics = useCallback(async () => {
+    if (!isNativeShell()) return;
+    try {
+      const list = await nativeRecorder.microphones();
+      setMics(list);
+      setMicId((current) =>
+        current && list.some((m) => m.id === current)
+          ? current
+          : (list.find((m) => m.default)?.id ?? list[0]?.id ?? ""),
+      );
+    } catch {
+      // No picker, then — start() falls back to the system default device.
+    }
+  }, []);
+  useEffect(() => {
+    if (native) void loadMics();
+  }, [native, loadMics]);
 
   const upload = useCallback(
     async (blob: Blob, filename: string, title?: string, channelLayout?: string) => {
@@ -48,7 +71,7 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
   const startNative = useCallback(async () => {
     setError(null);
     try {
-      await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`);
+      await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`, micId || undefined);
       setMode("recording");
       const startedAt = Date.now();
       setElapsed(0);
@@ -63,7 +86,7 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
       setError(`${t("rec.nativeFailed")} — ${reason}`);
       setMode("idle");
     }
-  }, [t]);
+  }, [t, micId]);
 
   const stopNative = useCallback(async () => {
     if (tickRef.current) clearInterval(tickRef.current);
@@ -167,6 +190,30 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
           />
           {mode === "uploading" && (
             <span className="text-sm text-brand">{t("rec.uploading")}</span>
+          )}
+          {native && mics.length > 0 && (
+            <label className="flex items-center gap-1.5 text-xs text-ink-soft/70">
+              <span className="sr-only">{t("rec.micLabel")}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M19 12a7 7 0 01-14 0M12 19v3" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <select
+                value={micId}
+                onChange={(e) => setMicId(e.target.value)}
+                onMouseDown={() => void loadMics()}
+                className="max-w-[11rem] truncate rounded-md border border-brand-light bg-white px-2 py-1 text-brand"
+              >
+                {mics.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                    {m.default ? ` (${t("rec.micDefault")})` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
           <span className="ml-auto text-xs text-ink-soft/50">
             {native ? t("rec.nativeHint") : t("rec.hint")}

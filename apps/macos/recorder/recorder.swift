@@ -234,13 +234,32 @@ final class ChannelWriter {
 /// ScreenCaptureKit's microphone output is unreliable across audio devices; CoreAudio
 /// is not. Same permission (NSMicrophoneUsageDescription), same buffers, different
 /// clock — see the note at the top of this file.
+/// Every audio input the system can offer, so the user isn't stuck with whatever
+/// happens to be the default. The default's own id is marked so the UI can preselect
+/// it — the frequent trap is the output moving to the laptop while the input stays on
+/// a headset that is no longer near the mouth.
+func microphoneDevices() -> [(id: String, name: String, isDefault: Bool)] {
+    let session = AVCaptureDevice.DiscoverySession(
+        deviceTypes: [.microphone, .external],
+        mediaType: .audio, position: .unspecified)
+    let defaultID = AVCaptureDevice.default(for: .audio)?.uniqueID
+    return session.devices.map {
+        (id: $0.uniqueID, name: $0.localizedName, isDefault: $0.uniqueID == defaultID)
+    }
+}
+
 final class MicCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let session = AVCaptureSession()
     private let writer: ChannelWriter
     let deviceName: String
 
-    init?(writer: ChannelWriter) {
-        guard let device = AVCaptureDevice.default(for: .audio),
+    /// `deviceID` names a specific input (from microphoneDevices); nil takes the
+    /// system default. An unknown or unavailable id falls back to the default rather
+    /// than failing — a saved device that was later unplugged must not block a meeting.
+    init?(writer: ChannelWriter, deviceID: String?) {
+        let chosen = deviceID.flatMap { AVCaptureDevice(uniqueID: $0) }
+            ?? AVCaptureDevice.default(for: .audio)
+        guard let device = chosen,
               let input = try? AVCaptureDeviceInput(device: device) else { return nil }
         self.writer = writer
         self.deviceName = device.localizedName
@@ -629,11 +648,27 @@ struct Main {
         }
         if args.contains("--selftest") { exit(selfTest()) }
 
+        // The shell asks for the device list before showing the picker. JSON on
+        // stdout, one object, so it parses the same way as the other machine output.
+        if args.contains("--list-mics") {
+            let devices = microphoneDevices().map {
+                ["id": $0.id, "name": $0.name, "default": $0.isDefault] as [String: Any]
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: devices),
+               let json = String(data: data, encoding: .utf8) {
+                out(json)
+            } else {
+                out("[]")
+            }
+            exit(0)
+        }
+
         let apiBase = take("--api")
         let title = take("--title") ?? "Meeting"
+        let micDevice = take("--mic-device")
 
         guard let outPath = args.first else {
-            err("usage: recorder <out.wav> [seconds] [--api URL] [--title T]")
+            err("usage: recorder <out.wav> [seconds] [--api URL] [--title T] [--mic-device ID]")
             exit(64)
         }
         let outURL = URL(fileURLWithPath: outPath)
@@ -681,7 +716,7 @@ struct Main {
             try stream.addStreamOutput(rec, type: .audio,
                                        sampleHandlerQueue: DispatchQueue(label: "sys"))
 
-            guard let micCapture = MicCapture(writer: rec.mic) else {
+            guard let micCapture = MicCapture(writer: rec.mic, deviceID: micDevice) else {
                 err("could not open the microphone through CoreAudio")
                 exit(9)
             }

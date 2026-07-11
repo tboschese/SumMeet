@@ -49,10 +49,20 @@ export interface CaptureStatus {
   stale: boolean;
 }
 
+/** An audio input the OS can capture from. */
+export interface Microphone {
+  id: string;
+  name: string;
+  default: boolean;
+}
+
 export const nativeRecorder = {
-  start: (title: string) => invoke<void>("start_recording", { title }),
+  start: (title: string, micDeviceId?: string) =>
+    invoke<void>("start_recording", { title, micDeviceId: micDeviceId ?? null }),
   stop: () => invoke<string>("stop_recording"),
   isRecording: () => invoke<boolean>("is_recording"),
   /** Polled while recording, to prove on screen that both sources are alive. */
   status: () => invoke<CaptureStatus>("capture_status"),
+  /** The input devices to offer in the picker; the default is flagged. */
+  microphones: () => invoke<Microphone[]>("list_microphones"),
 };
