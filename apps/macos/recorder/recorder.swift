@@ -53,6 +53,9 @@ final class ChannelWriter {
     private var converter: AVAudioConverter?
     private(set) var convertedBuffers = 0
     private(set) var droppedBuffers = 0
+    /// Samples that hit full scale — clipped, i.e. the mic's input gain is too high.
+    private(set) var clippedSamples = 0
+    var clippedFraction: Double { sampleCount > 0 ? Double(clippedSamples) / Double(sampleCount) : 0 }
     /// Peak of the buffer as it *arrived*, before any conversion. Separates "the OS
     /// handed us silence" from "we destroyed the signal on the way to disk".
     private(set) var rawPeak: Float = 0
@@ -64,9 +67,10 @@ final class ChannelWriter {
     private(set) var sumSquares: Double = 0
     private(set) var sampleCount = 0
     private(set) var peak: Float = 0
-    /// Energy since the last takeLevel(), for the live meter.
+    /// Energy and peak since the last takeLevel(), for the live meter.
     private var windowSumSquares: Double = 0
     private var windowCount = 0
+    private var windowPeak: Float = 0
     private let lock = NSLock()
 
     init(name: String, url: URL) { self.name = name; self.url = url }
@@ -78,13 +82,15 @@ final class ChannelWriter {
 
     /// RMS since the previous call, then reset. Recording blind is how every
     /// capture bug in this project survived to reach the user: report as we go.
-    func takeLevel() -> Double {
+    func takeLevel() -> (rms: Double, peak: Float) {
         lock.lock()
         defer { lock.unlock() }
         let level = windowCount > 0 ? (windowSumSquares / Double(windowCount)).squareRoot() : 0
+        let p = windowPeak
         windowSumSquares = 0
         windowCount = 0
-        return level
+        windowPeak = 0
+        return (level, p)
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
@@ -181,19 +187,26 @@ final class ChannelWriter {
         // which the pipeline would have reported as a dead microphone.
         if let data = toWrite.floatChannelData {
             var blockSumSquares: Double = 0
+            var blockPeak: Float = 0
             for ch in 0..<Int(toWrite.format.channelCount) {
                 let buf = data[ch]
                 for i in 0..<Int(toWrite.frameLength) {
-                    let v = buf[i]
+                    let v = abs(buf[i])
                     blockSumSquares += Double(v * v)
-                    peak = max(peak, abs(v))
+                    blockPeak = max(blockPeak, v)
+                    // A sample at or past full scale is clipped: the true level was
+                    // higher and got flattened. Counting them turns "peak 1.0" (which
+                    // could be one loud word) into "how much of the take is distorted".
+                    if v >= 0.999 { clippedSamples += 1 }
                 }
             }
             let n = Int(toWrite.frameLength) * Int(toWrite.format.channelCount)
             sumSquares += blockSumSquares
             sampleCount += n
+            peak = max(peak, blockPeak)
             windowSumSquares += blockSumSquares
             windowCount += n
+            windowPeak = max(windowPeak, blockPeak)
         }
 
         try? file.write(from: toWrite)
@@ -732,8 +745,10 @@ struct Main {
             let meter = Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 200_000_000)
-                    out(String(format: "LEVEL sys=%.5f mic=%.5f",
-                               rec.system.takeLevel(), rec.mic.takeLevel()))
+                    let sys = rec.system.takeLevel()
+                    let mic = rec.mic.takeLevel()
+                    out(String(format: "LEVEL sys=%.5f mic=%.5f micpeak=%.5f",
+                               sys.rms, mic.rms, mic.peak))
                 }
             }
             defer { meter.cancel() }
@@ -762,6 +777,17 @@ struct Main {
                        rec.mic.rms, rec.mic.peak, rec.mic.sampleCount))
             err(String(format: "  raw peaks (before conversion): system %.4f  mic %.4f",
                        rec.system.rawPeak, rec.mic.rawPeak))
+
+            // Clipping ruins both transcription and speaker attribution: the flattened
+            // peaks distort the per-channel energy the diarizer compares. The raw peak
+            // exceeding 1.0 is the giveaway the OS gain is too high.
+            if rec.mic.rawPeak > 1.0 || rec.mic.clippedFraction > 0.001 {
+                err(String(format: """
+                      MICROPHONE IS CLIPPING (raw peak %.3f, %.1f%% of samples at full scale).
+                      The input gain is too high — lower it in System Settings → Sound → Input,
+                      or move back from the mic. Clipping distorts who-said-what.
+                    """, rec.mic.rawPeak, rec.mic.clippedFraction * 100))
+            }
 
             // A device change mid-meeting (headphones in or out) is normal; losing
             // buffers to it is not. Say so rather than shipping a quiet gap.

@@ -24,6 +24,10 @@ const WEAK_PEAK = 0.1;
 const GRACE_MS = 4000;
 /** Weak is a slower judgement than dead: give the user time to actually speak. */
 const WEAK_GRACE_MS = 9000;
+/** Mic peak at or above this is clipping — flattened peaks distort both the
+ * transcript and who-said-what. Two windows, so a single stray sample isn't an alarm. */
+const CLIP_PEAK = 0.98;
+const CLIP_WINDOWS = 2;
 /** Below this the system isn't really playing, so it says nothing about echo. */
 const SYSTEM_VOICED = 0.005;
 /** Mic at this fraction of the system's level, while the system plays, is echo. */
@@ -68,6 +72,10 @@ export function CaptureMeters() {
   // here, so a burst of your own voice can't be mistaken for echo.
   const echoWindow = useRef<boolean[]>([]);
   const [echoing, setEchoing] = useState(false);
+  // Consecutive windows the mic peaked at full scale; clipping is sustained, not one
+  // stray sample. Latches on so a warning that appeared doesn't flicker away.
+  const clipStreak = useRef(0);
+  const [clipping, setClipping] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +87,9 @@ export function CaptureMeters() {
           system: Math.max(peaks.current.system * 0.97, next.system),
           mic: Math.max(peaks.current.mic * 0.97, next.mic),
         };
+
+        clipStreak.current = next.mic_peak >= CLIP_PEAK ? clipStreak.current + 1 : 0;
+        if (clipStreak.current >= CLIP_WINDOWS) setClipping(true);
 
         if (next.system > SYSTEM_VOICED) {
           const w = echoWindow.current;
@@ -114,17 +125,21 @@ export function CaptureMeters() {
     peaks.current.mic >= DEAD_CHANNEL &&
     peaks.current.mic < WEAK_PEAK;
 
+  // Clipping outranks the quiet warnings: it corrupts the transcript and, by
+  // flattening peaks, the who-said-what the diarizer reads from channel energy.
   const warning = status.stale
     ? t("rec.meter.stale")
     : micDead
       ? t("rec.meter.micDead")
       : systemDead
         ? t("rec.meter.systemDead")
-        : echoing
-          ? t("rec.meter.echo")
-          : micWeak
-            ? t("rec.meter.micWeak")
-            : null;
+        : clipping
+          ? t("rec.meter.clipping")
+          : echoing
+            ? t("rec.meter.echo")
+            : micWeak
+              ? t("rec.meter.micWeak")
+              : null;
 
   return (
     <div className="mt-3 space-y-1.5">

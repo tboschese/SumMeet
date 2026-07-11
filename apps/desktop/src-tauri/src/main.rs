@@ -28,6 +28,8 @@ const LEVEL_STALE: Duration = Duration::from_millis(1500);
 struct Levels {
     system: f32,
     mic: f32,
+    /// Mic peak this window: near 1.0 means the input is clipping.
+    mic_peak: f32,
 }
 
 /// What the panel and the menu-bar item render. `stale` means the recorder stopped
@@ -37,6 +39,7 @@ struct CaptureStatus {
     recording: bool,
     system: f32,
     mic: f32,
+    mic_peak: f32,
     elapsed_secs: u64,
     stale: bool,
 }
@@ -263,23 +266,27 @@ fn augmented_path() -> String {
     format!("/opt/homebrew/bin:/usr/local/bin:{home}/.local/bin:{current}")
 }
 
-/// `LEVEL sys=0.01234 mic=0.05678` → the two numbers.
+/// `LEVEL sys=0.01234 mic=0.05678 micpeak=0.9` → the numbers. micpeak is optional so
+/// an older recorder still parses.
 fn parse_level(line: &str) -> Option<Levels> {
     let rest = line.strip_prefix("LEVEL ")?;
     let mut system = None;
     let mut mic = None;
+    let mut mic_peak = 0.0;
     for field in rest.split_whitespace() {
         let (key, value) = field.split_once('=')?;
         let value: f32 = value.parse().ok()?;
         match key {
             "sys" => system = Some(value),
             "mic" => mic = Some(value),
+            "micpeak" => mic_peak = value,
             _ => {}
         }
     }
     Some(Levels {
         system: system?,
         mic: mic?,
+        mic_peak,
     })
 }
 
@@ -454,6 +461,7 @@ fn read_status(recording: &Recording) -> CaptureStatus {
             recording: true,
             system: levels.system,
             mic: levels.mic,
+            mic_peak: levels.mic_peak,
             elapsed_secs: session.started.elapsed().as_secs(),
             stale: at.elapsed() > LEVEL_STALE,
         },
@@ -633,9 +641,13 @@ mod tests {
 
     #[test]
     fn parses_a_level_line() {
-        let l = parse_level("LEVEL sys=0.08820 mic=0.03971").expect("should parse");
+        let l = parse_level("LEVEL sys=0.08820 mic=0.03971 micpeak=0.9").expect("should parse");
         assert!((l.system - 0.08820).abs() < 1e-6);
         assert!((l.mic - 0.03971).abs() < 1e-6);
+        assert!((l.mic_peak - 0.9).abs() < 1e-6);
+        // An older recorder without micpeak still parses, peak defaulting to 0.
+        let old = parse_level("LEVEL sys=0.1 mic=0.2").expect("should parse");
+        assert_eq!(old.mic_peak, 0.0);
     }
 
     #[test]

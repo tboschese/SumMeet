@@ -172,14 +172,15 @@ export async function runPipeline(
     if (isSummeetStereoLayout(meeting.channelLayout)) {
       const attributed = await assignSpeakers(audioPath, transcript.segments);
       segments = attributed.segments;
-      if (attributed.echoGain >= 1) {
-        // Speakers, not headphones: the mic re-recorded the meeting louder than
-        // the user's own voice, so every label would be a coin flip.
-        log?.(
-          `pipeline ${meetingId}: speaker attribution skipped ` +
-            `(echo gain ${attributed.echoGain.toFixed(2)} — use headphones)`,
-        );
-      }
+      // Always log the echo gain, not only when it crosses the skip threshold: when
+      // attribution comes back mixed up, this number (and whether it was close to the
+      // line) is the only way to tell bleed apart from a bug, and the audio is gone.
+      const skipped = attributed.echoGain >= 1;
+      log?.(
+        `pipeline ${meetingId}: speaker attribution ` +
+          `${skipped ? "skipped" : "kept"} (echo gain ${attributed.echoGain.toFixed(2)}` +
+          `${skipped ? " — speakers, not headphones" : ""})`,
+      );
     }
 
     const durationSec =

@@ -96,17 +96,36 @@ fi
 # The recorder shares the app's identity so it is one subject to TCC, not two: as its
 # own signed identifier it needed its own Screen Recording grant, a second entry to
 # approve. Same certificate, same requirement, one permission.
-codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP/Contents/MacOS/recorder"
-codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP"
-
+#
 # codesign can print "errSecInternalComponent" (the key is in the keychain but locked
-# to non-interactive use) and still exit 0, silently leaving an ad-hoc-ish signature —
-# which is how permissions quietly went back to resetting every build. Verify the
-# authority actually took, and stop rather than ship a bundle that only looks signed.
-if [ "$STABLE" = "1" ] && ! codesign -dvv "$APP" 2>&1 | grep -q "Authority=$IDENTITY"; then
-  echo "✗ signing with '$IDENTITY' did not take (key locked for codesign)." >&2
-  echo "  Run: security set-key-partition-list -S apple-tool:,apple:,codesign: -s -l \"$IDENTITY\" \"$HOME/Library/Keychains/login.keychain-db\"" >&2
-  exit 1
+# to non-interactive use) and *still exit 0*, silently leaving an ad-hoc-ish signature
+# — which is how permissions quietly went back to resetting every build. The lock only
+# bites the first sign after the keychain re-locks between processes; the next succeeds.
+# So sign, verify the authority actually took, and retry a couple of times before
+# giving up rather than shipping a bundle that only looks signed.
+sign_bundle() {
+  codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP/Contents/MacOS/recorder" 2>/dev/null
+  codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP" 2>/dev/null
+}
+
+if [ "$STABLE" = "1" ]; then
+  ok=0
+  for attempt in 1 2 3 4; do
+    sign_bundle
+    if codesign -dvv "$APP" 2>&1 | grep -q "Authority=$IDENTITY"; then ok=1; break; fi
+    # A locked login keychain (the Mac slept during the build) blocks key access no
+    # matter the partition list. Nudge it unlocked and wait a beat before retrying.
+    echo "→ signing did not take (keychain locked); unlocking and retrying ($attempt)"
+    security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
+    sleep 2
+  done
+  if [ "$ok" = "0" ]; then
+    echo "✗ could not sign with '$IDENTITY' — the login keychain is locked for codesign." >&2
+    echo "  Unlock it (any Keychain Access action, or: security unlock-keychain) and rebuild." >&2
+    exit 1
+  fi
+else
+  sign_bundle
 fi
 
 # Ad-hoc only: the cdhash moved, so the old grant is dead weight that still shows as

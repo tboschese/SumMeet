@@ -44,6 +44,8 @@ export interface CaptureStatus {
   recording: boolean;
   system: number;
   mic: number;
+  /** Mic peak this window; near 1.0 means the input is clipping. */
+  mic_peak: number;
   elapsed_secs: number;
   /** The recorder stopped reporting levels — it may have died. */
   stale: boolean;
