@@ -99,6 +99,16 @@ fi
 codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP/Contents/MacOS/recorder"
 codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP"
 
+# codesign can print "errSecInternalComponent" (the key is in the keychain but locked
+# to non-interactive use) and still exit 0, silently leaving an ad-hoc-ish signature —
+# which is how permissions quietly went back to resetting every build. Verify the
+# authority actually took, and stop rather than ship a bundle that only looks signed.
+if [ "$STABLE" = "1" ] && ! codesign -dvv "$APP" 2>&1 | grep -q "Authority=$IDENTITY"; then
+  echo "✗ signing with '$IDENTITY' did not take (key locked for codesign)." >&2
+  echo "  Run: security set-key-partition-list -S apple-tool:,apple:,codesign: -s -l \"$IDENTITY\" \"$HOME/Library/Keychains/login.keychain-db\"" >&2
+  exit 1
+fi
+
 # Ad-hoc only: the cdhash moved, so the old grant is dead weight that still shows as
 # ticked. Clear it so the next launch prompts cleanly. With a stable identity the
 # grant is meant to persist, so leave it alone.

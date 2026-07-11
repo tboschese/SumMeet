@@ -43,10 +43,17 @@ openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" \
 
 echo "→ importing into the login keychain"
 security import "$work/ident.p12" -k "$KC" -P summeet -T /usr/bin/codesign >/dev/null
-security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KC" >/dev/null 2>&1 || true
 
-echo "→ trusting it for code signing (macOS will ask for your login password, once)"
+echo "→ trusting it for code signing (macOS will ask for your login password)"
 security add-trusted-cert -r trustRoot -p codeSign -k "$KC" "$work/cert.pem"
+
+# Without this, codesign finds the identity but cannot use its private key
+# non-interactively: it prints "errSecInternalComponent" and *still exits 0*, so
+# bundle.sh would silently fall back to an ad-hoc signature and permissions would keep
+# resetting. Key it by the cert label, not an empty keychain password (which fails).
+echo "→ allowing codesign to use the key"
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -l "$IDENTITY" "$KC" \
+  >/dev/null 2>&1 || true
 
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
   echo "✓ '$IDENTITY' is ready. Rebuild with apps/desktop/bundle.sh and grant permissions one last time."
