@@ -19,7 +19,6 @@ use tauri::Manager;
 
 const API_BASE: &str = "http://localhost:8080";
 const API_PORT: u16 = 8080;
-const PANEL_PORT: u16 = 3000;
 /// The recorder emits a level line every 200 ms; past this it has gone quiet on us.
 const LEVEL_STALE: Duration = Duration::from_millis(1500);
 
@@ -119,14 +118,18 @@ fn backend_log() -> Option<PathBuf> {
     Some(dir.join("backend.log"))
 }
 
-/// Start the API + panel if they aren't already up, so opening the app is enough
-/// — no `pnpm dev` in another terminal.
+/// Start the API if it isn't already up, so opening the app is enough — no `pnpm dev`
+/// in another terminal.
 ///
-/// `pnpm dev` spawns a tree (concurrently -> next + tsx). Killing only the parent
-/// leaves orphans holding the ports, so put the child in its own process group
-/// and signal the whole group on quit.
+/// The panel is no longer a server: it is exported to static files and served from the
+/// app bundle itself, so only the API is spawned and port 3000 does not exist. That
+/// removes the Next dev server, its orphan process tree, and the class of bugs where a
+/// stale watcher kept serving yesterday's code.
+///
+/// The API still spawns a tree (pnpm -> tsx). Killing only the parent leaves orphans
+/// holding the port, so put the child in its own process group and signal the group.
 fn ensure_backend() -> Option<Child> {
-    if port_open(API_PORT) && port_open(PANEL_PORT) {
+    if port_open(API_PORT) {
         return None; // someone else's dev server: not ours to manage
     }
 
@@ -136,7 +139,9 @@ fn ensure_backend() -> Option<Child> {
     let log = backend_log().and_then(|p| std::fs::File::create(p).ok());
 
     let mut cmd = Command::new("pnpm");
-    cmd.arg("dev")
+    cmd.arg("--filter")
+        .arg("@summeet/api")
+        .arg("dev")
         .current_dir(repo_root())
         .env("PATH", augmented_path());
     match log {
@@ -173,7 +178,7 @@ fn ensure_backend() -> Option<Child> {
         Ok(child) => {
             // setpgid(0,0) made the child a group leader, so pgid == pid.
             BACKEND_PGID.store(child.id() as i32, Ordering::SeqCst);
-            if !wait_for_ports(&[API_PORT, PANEL_PORT], Duration::from_secs(90)) {
+            if !wait_for_ports(&[API_PORT], Duration::from_secs(90)) {
                 eprintln!("backend did not come up in time");
             }
             Some(child)
@@ -188,9 +193,9 @@ fn ensure_backend() -> Option<Child> {
 /// The backend's process-group id, readable from a signal handler.
 ///
 /// If the app is killed (SIGTERM/SIGINT) rather than quit through the UI, no Tauri
-/// event ever fires and the dev-server tree would survive, holding :3000 and :8080
-/// — the exact orphan problem that plagues `pnpm dev`. A signal handler is the
-/// only place we can still reap it.
+/// event ever fires and the API tree would survive, holding :8080 — the orphan
+/// problem that plagues `pnpm dev`. A signal handler is the only place we can still
+/// reap it.
 static BACKEND_PGID: AtomicI32 = AtomicI32::new(0);
 
 extern "C" fn reap_backend_on_signal(_sig: i32) {

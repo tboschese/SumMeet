@@ -21,6 +21,12 @@ PROFILE="${1:-debug}"
 echo "→ building the Swift recorder"
 "$ROOT/apps/macos/recorder/build.sh" >/dev/null
 
+# The panel is exported to static files and compiled into the shell binary, so the app
+# serves its own UI. No Next server, no port 3000, nothing to leave orphaned.
+echo "→ exporting the web panel"
+(cd "$ROOT" && pnpm --filter @summeet/web build >/dev/null)
+test -f "$ROOT/apps/web/out/index.html" || { echo "✗ panel export produced no out/" >&2; exit 1; }
+
 echo "→ building the Tauri shell ($PROFILE)"
 pushd "$HERE/src-tauri" >/dev/null
 if [ "$PROFILE" = "release" ]; then cargo build --release; else cargo build; fi

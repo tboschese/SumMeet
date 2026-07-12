@@ -5,7 +5,8 @@
   "identifier": "com.summeet.app",
   "build": {
     "devUrl": "http://localhost:3000",
-    "frontendDist": "http://localhost:3000"
+    "frontendDist": "../../web/out",
+    "beforeBuildCommand": "pnpm --filter @summeet/web build"
   },
   "app": {
     "windows": [

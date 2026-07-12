@@ -137,7 +137,7 @@ export default function HomePage() {
             {meetings?.map((m) => (
               <li key={m.id} className="flex items-center">
                 <Link
-                  href={`/meetings/${m.id}`}
+                  href={`/meetings?id=${m.id}`}
                   className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-3 hover:bg-brand-tint/60"
                 >
                   <div className="min-w-0">

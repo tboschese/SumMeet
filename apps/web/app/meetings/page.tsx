@@ -4,8 +4,8 @@
 // Action items / decisions link back to their transcript span via sourceQuote.
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { MeetingInsights } from "@summeet/core/schemas";
 import { DEFAULT_SECTIONS, type SectionKey } from "@summeet/core/sections";
 import {
@@ -139,11 +139,24 @@ function insightsToMarkdown(
   return out.join("\n").trim();
 }
 
+// The route is /meetings?id=… rather than /meetings/[id]: a static export has to know
+// every dynamic segment at build time, and meeting ids are runtime data. The panel is a
+// single-page app talking to the local API, so the path segment bought nothing — and
+// dropping it lets the desktop app serve the panel straight from the bundle, with no
+// Next server and no port 3000 at all.
 export default function MeetingDetailPage() {
+  // useSearchParams needs a Suspense boundary to be statically rendered.
+  return (
+    <Suspense fallback={null}>
+      <MeetingDetail />
+    </Suspense>
+  );
+}
+
+function MeetingDetail() {
   const t = useT();
-  const params = useParams<{ id: string }>();
   const router = useRouter();
-  const id = params.id;
+  const id = useSearchParams().get("id") ?? "";
   const [detail, setDetail] = useState<MeetingDetail | null>(null);
   const [sections, setSections] = useState<SectionKey[]>(DEFAULT_SECTIONS);
   const [error, setError] = useState<string | null>(null);
