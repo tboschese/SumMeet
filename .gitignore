@@ -31,3 +31,4 @@ apps/macos/spike/spike
 
 # Desktop app bundle output
 apps/desktop/build/
+apps/web/out/

@@ -81,6 +81,11 @@ if [ ! -f "$HERE/src-tauri/icons/icon.icns" ]; then
 fi
 cp "$HERE/src-tauri/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
 
+# The API travels inside the app: Node, the bundled server, Prisma's native engine and a
+# migrated empty database. Without this the app needs pnpm, tsx and the repo to exist.
+echo "→ packaging the API"
+"$HERE/bundle-api.sh" "$APP"
+
 # Sign with a stable identity when one exists, so TCC grants survive rebuilds.
 #
 # An ad-hoc signature pins the grant to the binary's cdhash, which changes on every

@@ -118,6 +118,60 @@ fn backend_log() -> Option<PathBuf> {
     Some(dir.join("backend.log"))
 }
 
+/// The user's own data — database and recordings — outside the repo and outside the
+/// bundle, so it survives a reinstall and an app that lives in /Applications.
+fn data_dir() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let dir = PathBuf::from(home).join("Library/Application Support/SumMeet");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+/// The API packaged into the bundle: a Node runtime, the server bundled to one file,
+/// Prisma's native engine, and an empty migrated database to seed from. Absent in a
+/// `cargo tauri dev` tree, where we fall back to pnpm.
+fn packaged_api() -> Option<PathBuf> {
+    let dir = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .parent()? // Contents/
+        .join("Resources/api");
+    (dir.join("server.mjs").exists() && dir.join("node").exists()).then_some(dir)
+}
+
+/// Start the packaged API. Seeds the database from the template on first run, because
+/// a shipped app has no Prisma CLI to apply migrations with.
+fn spawn_packaged_api(api: &Path, log: Option<std::fs::File>) -> std::io::Result<Child> {
+    let data = data_dir().unwrap_or_else(std::env::temp_dir);
+    let db = data.join("summeet.db");
+    if !db.exists() {
+        let _ = std::fs::copy(api.join("summeet.template.db"), &db);
+    }
+
+    let mut cmd = Command::new(api.join("node"));
+    cmd.arg(api.join("server.mjs"))
+        .current_dir(api)
+        .env("DATABASE_URL", format!("file:{}", db.display()))
+        .env("DATA_DIR", &data)
+        .env("PATH", augmented_path());
+    match log {
+        Some(file) => {
+            let errors = file.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+            cmd.stdout(Stdio::from(file)).stderr(errors);
+        }
+        None => {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+    }
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setpgid(0, 0);
+            Ok(())
+        });
+    }
+    cmd.spawn()
+}
+
 /// Start the API if it isn't already up, so opening the app is enough — no `pnpm dev`
 /// in another terminal.
 ///
@@ -126,8 +180,9 @@ fn backend_log() -> Option<PathBuf> {
 /// removes the Next dev server, its orphan process tree, and the class of bugs where a
 /// stale watcher kept serving yesterday's code.
 ///
-/// The API still spawns a tree (pnpm -> tsx). Killing only the parent leaves orphans
-/// holding the port, so put the child in its own process group and signal the group.
+/// A shipped bundle carries the API (packaged_api); a dev tree does not, and falls back
+/// to pnpm. Either way the child gets its own process group: killing only the parent
+/// leaves orphans holding the port.
 fn ensure_backend() -> Option<Child> {
     if port_open(API_PORT) {
         return None; // someone else's dev server: not ours to manage
@@ -137,6 +192,22 @@ fn ensure_backend() -> Option<Child> {
     // skipped speaker attribution), and discarding that is how we spent a day
     // guessing at a microphone that was working.
     let log = backend_log().and_then(|p| std::fs::File::create(p).ok());
+
+    if let Some(api) = packaged_api() {
+        return match spawn_packaged_api(&api, log) {
+            Ok(child) => {
+                BACKEND_PGID.store(child.id() as i32, Ordering::SeqCst);
+                if !wait_for_ports(&[API_PORT], Duration::from_secs(60)) {
+                    eprintln!("packaged API did not come up in time");
+                }
+                Some(child)
+            }
+            Err(e) => {
+                eprintln!("could not start the packaged API: {e}");
+                None
+            }
+        };
+    }
 
     let mut cmd = Command::new("pnpm");
     cmd.arg("--filter")
