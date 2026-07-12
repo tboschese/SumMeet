@@ -61,6 +61,11 @@ struct Recording(Mutex<Option<Session>>);
 #[derive(Default)]
 struct Backend(Mutex<Option<Child>>);
 
+/// Ollama, if we started it. Like the backend, we only own it when we spawned it: an
+/// Ollama the user runs themselves is left alone, and left running when the app quits.
+#[derive(Default)]
+struct Ollama(Mutex<Option<Child>>);
+
 fn port_open(port: u16) -> bool {
     TcpStream::connect_timeout(
         &([127, 0, 0, 1], port).into(),
@@ -261,6 +266,44 @@ fn ensure_backend() -> Option<Child> {
     }
 }
 
+const OLLAMA_PORT: u16 = 11434;
+
+/// Start Ollama if it is installed but not running.
+///
+/// Local extraction is a headline promise — free, offline, no key — and it runs against
+/// Ollama's HTTP API. Installing Ollama does not start it, so the pipeline failed with
+/// "Could not reach Ollama", which reads as "not installed" to anyone who did install
+/// it. If someone already runs it themselves, the port is open and we leave it alone.
+fn ensure_ollama() -> Option<Child> {
+    if port_open(OLLAMA_PORT) {
+        return None; // already serving — not ours to manage
+    }
+
+    let mut cmd = Command::new("ollama");
+    cmd.arg("serve")
+        .env("PATH", augmented_path())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setpgid(0, 0);
+            Ok(())
+        });
+    }
+
+    match cmd.spawn() {
+        Ok(child) => {
+            OLLAMA_PGID.store(child.id() as i32, Ordering::SeqCst);
+            // Don't block startup on it: the model only has to be up by the time a
+            // meeting finishes transcribing, which is minutes away.
+            Some(child)
+        }
+        // Not installed is fine — the user may be on the cloud engine. The pipeline
+        // already fails soft with a readable reason if they aren't.
+        Err(_) => None,
+    }
+}
+
 /// The backend's process-group id, readable from a signal handler.
 ///
 /// If the app is killed (SIGTERM/SIGINT) rather than quit through the UI, no Tauri
@@ -268,12 +311,14 @@ fn ensure_backend() -> Option<Child> {
 /// problem that plagues `pnpm dev`. A signal handler is the only place we can still
 /// reap it.
 static BACKEND_PGID: AtomicI32 = AtomicI32::new(0);
+static OLLAMA_PGID: AtomicI32 = AtomicI32::new(0);
 
 extern "C" fn reap_backend_on_signal(_sig: i32) {
-    let pgid = BACKEND_PGID.load(Ordering::SeqCst);
-    if pgid > 0 {
-        // killpg and _exit are async-signal-safe; println!/exit() are not.
-        unsafe { libc::killpg(pgid, libc::SIGKILL) };
+    // killpg and _exit are async-signal-safe; println!/exit() are not.
+    for pgid in [BACKEND_PGID.load(Ordering::SeqCst), OLLAMA_PGID.load(Ordering::SeqCst)] {
+        if pgid > 0 {
+            unsafe { libc::killpg(pgid, libc::SIGKILL) };
+        }
     }
     unsafe { libc::_exit(0) };
 }
@@ -674,6 +719,16 @@ fn cleanup(handle: &tauri::AppHandle) {
     if let Some(mut child) = backend {
         stop_backend(&mut child); // only ever set when we started it ourselves
     }
+
+    let ollama = {
+        let s = handle.state::<Ollama>();
+        let child = s.0.lock().ok().and_then(|mut g| g.take());
+        child
+    };
+    if let Some(mut child) = ollama {
+        stop_backend(&mut child); // same process-group teardown; ours only if we spawned it
+        OLLAMA_PGID.store(0, Ordering::SeqCst);
+    }
 }
 
 fn main() {
@@ -682,13 +737,23 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(Recording::default())
         .manage(Backend::default())
+        .manage(Ollama::default())
         .setup(|app| {
-            // Block until the panel answers: the webview points at :3000 and would
-            // otherwise load an error page before the server is listening.
+            // Block until the API answers: the panel is served from the bundle, but it
+            // renders a meeting list it fetches from :8080.
             let started = ensure_backend();
             let state = app.state::<Backend>();
             let mut guard = state.0.lock().unwrap();
             *guard = started;
+            drop(guard);
+
+            // Local extraction runs against Ollama's HTTP API, and installing Ollama
+            // does not start it. Do that here rather than leaving the pipeline to fail
+            // with "Could not reach Ollama" — which reads as "not installed".
+            let ollama = ensure_ollama();
+            let state = app.state::<Ollama>();
+            let mut guard = state.0.lock().unwrap();
+            *guard = ollama;
             drop(guard);
 
             ensure_screen_recording();
