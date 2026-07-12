@@ -9,15 +9,17 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { MeetingInsights } from "@summeet/core/schemas";
 import { DEFAULT_SECTIONS, type SectionKey } from "@summeet/core/sections";
 import {
-  deleteMeeting,
   getMeeting,
   getSettings,
   isProcessing,
   reextractMeeting,
   renameMeeting,
   retryMeeting,
+  trashMeeting,
   type MeetingDetail,
 } from "@/lib/api";
+import { ConfirmDialog } from "@/app/components/ConfirmDialog";
+import { PromptDialog } from "@/app/components/PromptDialog";
 import { InsightSections, isMine } from "@/app/components/InsightSections";
 import { useT, type TFunction } from "@/lib/i18n";
 
@@ -235,28 +237,33 @@ function MeetingDetail() {
     }
   }, [id, refresh, t]);
 
+  // Moving to the trash is reversible, so it doesn't interrogate the user — but it can't
+  // ride on window.confirm either: the desktop webview has none, so it returned false and
+  // Delete silently did nothing at all.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const onDelete = useCallback(async () => {
-    if (!window.confirm(t("detail.confirmDelete"))) {
-      return;
-    }
+    setConfirmingDelete(false);
     try {
-      await deleteMeeting(id);
+      await trashMeeting(id);
       router.push("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("detail.deleteFailed"));
     }
   }, [id, router, t]);
 
-  const onRename = useCallback(async () => {
-    const next = window.prompt(t("detail.renamePrompt"), detail?.meeting.title ?? "");
-    if (next == null || !next.trim()) return;
-    try {
-      await renameMeeting(id, next.trim());
-      void refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("detail.renameFailed"));
-    }
-  }, [id, detail, refresh, t]);
+  const [renaming, setRenaming] = useState(false);
+  const onRename = useCallback(
+    async (next: string) => {
+      setRenaming(false);
+      try {
+        await renameMeeting(id, next);
+        void refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("detail.renameFailed"));
+      }
+    },
+    [id, refresh, t],
+  );
 
   const [reextracting, setReextracting] = useState(false);
   const onReextract = useCallback(async () => {
@@ -328,7 +335,7 @@ function MeetingDetail() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button type="button" onClick={onRename} className={toolBtn}>
+          <button type="button" onClick={() => setRenaming(true)} className={toolBtn}>
             {t("detail.rename")}
           </button>
           {insights && (
@@ -356,7 +363,7 @@ function MeetingDetail() {
           )}
           <button
             type="button"
-            onClick={onDelete}
+            onClick={() => setConfirmingDelete(true)}
             className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-ink-soft hover:border-red-300 hover:bg-red-50 hover:text-red-700"
           >
             {t("common.delete")}
@@ -455,6 +462,25 @@ function MeetingDetail() {
           )}
         </section>
       )}
+
+      <PromptDialog
+        open={renaming}
+        title={t("detail.renamePrompt")}
+        initialValue={meeting.title}
+        confirmLabel={t("detail.rename")}
+        onConfirm={onRename}
+        onCancel={() => setRenaming(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={t("common.delete")}
+        body={t("detail.confirmDelete")}
+        confirmLabel={t("common.delete")}
+        danger
+        onConfirm={onDelete}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </Shell>
   );
 }

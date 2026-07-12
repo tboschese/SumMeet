@@ -4,10 +4,12 @@ import {
   ACCEPTED_AUDIO_HINT,
   isAcceptedAudio,
   isSummeetStereoLayout,
+  MeetingQuerySchema,
   parseInsights,
   parseSegments,
   SUMMEET_STEREO_LAYOUT,
 } from "@summeet/core";
+import type { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
 import { db } from "../db.js";
@@ -87,18 +89,93 @@ export function registerMeetingRoutes(
     return reply.code(201).send({ id: meeting.id, status: "UPLOADED" });
   });
 
-  // List: newest first.
-  app.get("/api/meetings", async () => {
-    return db.meeting.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        durationSec: true,
-        createdAt: true,
-      },
+  // List: newest first, paginated and filterable. Returns the page plus the total, so
+  // the panel can render page controls without a second round trip.
+  app.get<{
+    Querystring: {
+      page?: string;
+      pageSize?: string;
+      q?: string;
+      status?: string;
+      trash?: string;
+    };
+  }>("/api/meetings", async (request) => {
+    const query = MeetingQuerySchema.parse(request.query);
+
+    // Trash is a separate view, never mixed into the list — a deleted meeting showing
+    // up among live ones is worse than not being able to find it.
+    const where: Prisma.MeetingWhereInput = {
+      deletedAt: query.trash ? { not: null } : null,
+      ...(query.status ? { status: query.status } : {}),
+      // SQLite has no case-insensitive `mode`, and titles are short: LIKE is enough,
+      // and Prisma parameterises it, so the user's text can't be a wildcard injection.
+      ...(query.q ? { title: { contains: query.q } } : {}),
+    };
+
+    const [meetings, total] = await Promise.all([
+      db.meeting.findMany({
+        where,
+        orderBy: query.trash ? { deletedAt: "desc" } : { createdAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          durationSec: true,
+          createdAt: true,
+          deletedAt: true,
+        },
+      }),
+      db.meeting.count({ where }),
+    ]);
+
+    return {
+      meetings,
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+      pages: Math.max(1, Math.ceil(total / query.pageSize)),
+    };
+  });
+
+  /** How many meetings are in the trash — for the badge on the trash link. */
+  app.get("/api/meetings/trash/count", async () => {
+    return { count: await db.meeting.count({ where: { deletedAt: { not: null } } }) };
+  });
+
+  /** Restore a meeting from the trash. */
+  app.post<{ Params: { id: string } }>(
+    "/api/meetings/:id/restore",
+    async (request, reply) => {
+      const meeting = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (!meeting) return reply.code(404).send({ error: "meeting not found" });
+      await db.meeting.update({
+        where: { id: meeting.id },
+        data: { deletedAt: null },
+      });
+      return { ok: true };
+    },
+  );
+
+  /** Empty the trash: purge every meeting already in it. */
+  app.post("/api/meetings/trash/empty", async () => {
+    const trashed = await db.meeting.findMany({
+      where: { deletedAt: { not: null } },
+      select: { id: true, audioKey: true },
     });
+    for (const meeting of trashed) {
+      if (meeting.audioKey) {
+        await ctx.storage.delete(meeting.audioKey).catch(() => {});
+      }
+    }
+    const { count } = await db.meeting.deleteMany({
+      where: { deletedAt: { not: null } },
+    });
+    return { ok: true, purged: count };
   });
 
   // Detail: meeting + transcript + insights (JSON parsed/validated on read).
@@ -213,7 +290,7 @@ export function registerMeetingRoutes(
   // because a local LLM takes ~40s each and this must not block the request.
   app.post("/api/meetings/extract-pending", async () => {
     const pending = await db.meeting.findMany({
-      where: { status: "TRANSCRIBED" },
+      where: { status: "TRANSCRIBED", deletedAt: null },
       select: { id: true },
       orderBy: { createdAt: "asc" },
     });
@@ -230,7 +307,15 @@ export function registerMeetingRoutes(
   });
 
   // Delete: remove the row (transcript/insights cascade) and the audio file.
-  app.delete<{ Params: { id: string } }>(
+  /**
+   * Delete = move to the trash. The recording is discarded once transcribed, so the
+   * insights and transcript are all that remain of a meeting: a hard delete is
+   * unrecoverable, and the panel used to fire one from a `window.confirm` the desktop
+   * webview never even showed. Restore is a click; purging is a deliberate act.
+   *
+   * `?permanent=true` purges, for the trash view's "delete forever".
+   */
+  app.delete<{ Params: { id: string }; Querystring: { permanent?: string } }>(
     "/api/meetings/:id",
     async (request, reply) => {
       const meeting = await db.meeting.findUnique({
@@ -239,13 +324,21 @@ export function registerMeetingRoutes(
       });
       if (!meeting) return reply.code(404).send({ error: "meeting not found" });
 
+      if (request.query.permanent !== "true") {
+        await db.meeting.update({
+          where: { id: meeting.id },
+          data: { deletedAt: new Date() },
+        });
+        return { ok: true, trashed: true };
+      }
+
       if (meeting.audioKey) {
         await ctx.storage.delete(meeting.audioKey).catch(() => {
           /* file may already be gone — deleting the row is what matters */
         });
       }
       await db.meeting.delete({ where: { id: meeting.id } });
-      return { ok: true };
+      return { ok: true, purged: true };
     },
   );
 }

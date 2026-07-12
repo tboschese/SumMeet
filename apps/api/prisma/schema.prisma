@@ -52,6 +52,12 @@ model Meeting {
   insights    Insights?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
+  // Trash: a meeting is a decision record, and the audio behind it is already gone —
+  // deleting one is unrecoverable. Soft-delete so it can be restored, and purge only
+  // when the user asks. Null = live; set = in the trash since.
+  deletedAt   DateTime?
+
+  @@index([deletedAt, createdAt])
 }
 
 model Transcript {

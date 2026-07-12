@@ -155,3 +155,40 @@ export const MeetingInsightsSchema = z.object({
   language: z.string(), // detected, ISO 639-1 (e.g. "pt", "en")
 });
 export type MeetingInsights = z.infer<typeof MeetingInsightsSchema>;
+
+// ── Meeting list: pagination, search and filters ─────────────────────────────
+// The history grows without bound, so the list is a page, not the whole table.
+
+/** Bounded so a client can't ask for the entire table in one request. */
+export const MeetingQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  /** Free-text match on the title. */
+  q: z.string().trim().min(1).optional(),
+  status: MeetingStatus.optional(),
+  /** The trash is a separate view; a deleted meeting never appears among live ones. */
+  trash: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .default("false"),
+});
+export type MeetingQuery = z.infer<typeof MeetingQuerySchema>;
+
+export const MeetingListItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: MeetingStatus,
+  durationSec: z.number().nullable(),
+  createdAt: z.union([z.string(), z.date()]),
+  deletedAt: z.union([z.string(), z.date()]).nullable(),
+});
+export type MeetingListItem = z.infer<typeof MeetingListItemSchema>;
+
+export const MeetingListSchema = z.object({
+  meetings: z.array(MeetingListItemSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  pages: z.number(),
+});
+export type MeetingList = z.infer<typeof MeetingListSchema>;

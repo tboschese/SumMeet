@@ -19,6 +19,26 @@ export interface MeetingListItem {
   status: MeetingStatus;
   durationSec: number | null;
   createdAt: string;
+  deletedAt: string | null;
+}
+
+/** A page of meetings, plus what the pager needs to render itself. */
+export interface MeetingList {
+  meetings: MeetingListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pages: number;
+}
+
+export interface MeetingFilters {
+  page?: number;
+  pageSize?: number;
+  /** Free-text match on the title. */
+  q?: string;
+  status?: MeetingStatus;
+  /** The trash is its own view — deleted meetings never appear among live ones. */
+  trash?: boolean;
 }
 
 export interface MeetingDetail {
@@ -48,9 +68,47 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function listMeetings(): Promise<MeetingListItem[]> {
-  return fetch(`${API_BASE}/api/meetings`, { cache: "no-store" }).then(
-    json<MeetingListItem[]>,
+export function listMeetings(filters: MeetingFilters = {}): Promise<MeetingList> {
+  const params = new URLSearchParams();
+  if (filters.page) params.set("page", String(filters.page));
+  if (filters.pageSize) params.set("pageSize", String(filters.pageSize));
+  if (filters.q) params.set("q", filters.q);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.trash) params.set("trash", "true");
+  const query = params.toString();
+  return fetch(`${API_BASE}/api/meetings${query ? `?${query}` : ""}`, {
+    cache: "no-store",
+  }).then(json<MeetingList>);
+}
+
+/** Move to the trash. Recoverable — `deleteMeetingForever` is the one that isn't. */
+export function trashMeeting(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}`, { method: "DELETE" }).then(
+    json<{ ok: true }>,
+  );
+}
+
+export function restoreMeeting(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}/restore`, { method: "POST" }).then(
+    json<{ ok: true }>,
+  );
+}
+
+export function deleteMeetingForever(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}?permanent=true`, {
+    method: "DELETE",
+  }).then(json<{ ok: true }>);
+}
+
+export function emptyTrash(): Promise<{ ok: true; purged: number }> {
+  return fetch(`${API_BASE}/api/meetings/trash/empty`, { method: "POST" }).then(
+    json<{ ok: true; purged: number }>,
+  );
+}
+
+export function trashCount(): Promise<{ count: number }> {
+  return fetch(`${API_BASE}/api/meetings/trash/count`, { cache: "no-store" }).then(
+    json<{ count: number }>,
   );
 }
 
@@ -84,12 +142,6 @@ export function createMeeting(
 export function retryMeeting(id: string): Promise<CreateResult> {
   return fetch(`${API_BASE}/api/meetings/${id}/retry`, { method: "POST" }).then(
     json<CreateResult>,
-  );
-}
-
-export function deleteMeeting(id: string): Promise<{ ok: true }> {
-  return fetch(`${API_BASE}/api/meetings/${id}`, { method: "DELETE" }).then(
-    json<{ ok: true }>,
   );
 }
 
