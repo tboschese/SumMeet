@@ -1,10 +1,12 @@
 # SumMeet
 
-Turn a meeting recording into a **decision record** — TL;DR, executive summary,
-key points, action items, decisions, and topics — extracted from browser-captured
-meeting audio. Runs fully on your machine: local disk for recordings, SQLite for
-data, an in-process worker. The only thing that leaves your machine is the audio
-sent to the transcription/extraction APIs.
+Turn a meeting into a **decision record** — TL;DR, executive summary, key points,
+action items, decisions, and topics. Meetings are captured **natively on macOS**
+(the desktop app records the system audio + your mic, no browser, no virtual audio
+driver) or **in the browser** (a Chrome tab + your mic). Runs fully on your machine:
+recordings on local disk, SQLite for data, an in-process worker. The only thing that
+leaves your machine is the audio sent to the transcription/extraction APIs — and with
+the local engine, **nothing leaves at all**.
 
 See [`SPEC.md`](./SPEC.md) for the full product & engineering spec and
 [`CLAUDE.md`](./CLAUDE.md) for the build guardrails.
@@ -42,6 +44,40 @@ This build uses **Groq** for the cloud engine (no Anthropic/Claude) and
 
 ## Run
 
+Two ways, depending on what you're doing.
+
+### The desktop app (macOS) — the real product
+
+One installable icon that captures the meeting, runs the API, and shows the panel —
+no `pnpm dev`, no terminal, no port 3000.
+
+```bash
+apps/desktop/setup-signing.sh    # once: a local signing cert so macOS permissions
+                                 # survive rebuilds (see "Why signing" below)
+apps/desktop/bundle.sh           # build SumMeet.app (recorder + panel + API, signed)
+open apps/desktop/build/SumMeet.app
+```
+
+On first launch macOS asks for **Screen Recording** (the system-audio tap) and the
+**Microphone** — approve both, and reopen if prompted. The app:
+
+- captures the meeting with ScreenCaptureKit (others) + CoreAudio (your mic), written
+  as a stereo Opus file — no BlackHole, no extension, no tab picker;
+- starts the bundled API and, if installed, **Ollama**, so local processing works
+  out of the box;
+- stores your data in `~/Library/Application Support/SumMeet/` (survives a reinstall).
+
+Needs **ffmpeg** on `PATH` (`brew install ffmpeg`) and macOS 15+.
+
+> **Why signing.** `bundle.sh` signs with a local self-signed certificate so TCC keys
+> the Screen Recording / Microphone grants to the *certificate*, not the binary hash —
+> otherwise every rebuild silently revokes them. It is not notarised and does nothing
+> for distribution; shipping to other machines still needs an Apple Developer ID.
+
+### Web / dev mode
+
+For iterating on the UI, or capturing a browser tab instead of the desktop app:
+
 ```bash
 pnpm dev                  # web on :3000, api on :8080
 ```
@@ -72,9 +108,8 @@ The in-browser recorder (tab audio + mic, mixed) has a standalone harness at
 4. You should hear **both** the other participants *and* your own voice. Try a
    long run (30+ min, tab backgrounded) to confirm nothing drops.
 
-> Requires desktop Chrome or Edge. Tab-audio capture is cross-platform; whole
-> system/screen audio is not (why desktop apps are out of MVP scope — use the
-> web clients).
+> Requires desktop Chrome or Edge. This is the *browser* capture path; for whole
+> system audio with no tab picker, use the macOS app (see **Run → desktop app**).
 
 ## Local / private mode (free, offline)
 
@@ -154,15 +189,15 @@ model, no API key and no extra call**.
 Limits: it separates you from everyone else, not the other participants from each
 other. File uploads (mono) carry no speaker data and stay unlabelled.
 
-## Capture (roadmap A7)
+## Capture (roadmap A7 — shipped on macOS)
 
-Recording is moving out of the browser and into the OS. On macOS, ScreenCaptureKit
-captures the system audio mix with **no virtual audio driver** — validated in
-[`apps/macos/spike/`](apps/macos/spike/) — so the native app records Meet, Zoom
-and Teams (browser *or* desktop client) with no extension and no tab picker.
-
-Until the native apps ship, use the web panel's **Record** button (it captures a
-Chrome tab + your mic) or **Upload**.
+Recording lives in the OS, not the browser. The macOS app (see **Run → desktop app**)
+captures the system-audio mix with ScreenCaptureKit and your mic through CoreAudio —
+**no virtual audio driver, no extension, no tab picker** — so it records Meet, Zoom and
+Teams from the browser *or* the desktop client. It writes the two sources as stereo
+Opus (left = others, right = you), which is what makes the free speaker attribution
+below possible. Windows and Android are next; the browser panel remains for quick
+tab capture and uploads.
 
 > The Chrome extension was removed once native capture made it redundant. It's
 > still in the git history if you need it.
@@ -173,5 +208,7 @@ Monorepo (pnpm workspaces):
 
 - `packages/core` — shared Zod schemas (the Insight contract, source of truth).
 - `apps/api` — Fastify API + Prisma (SQLite) + in-process worker.
-- `apps/web` — Next.js (App Router) + Tailwind.
-- `apps/macos` — native capture spike (Swift + ScreenCaptureKit).
+- `apps/web` — Next.js (App Router) + Tailwind; static-exported and served by the app.
+- `apps/desktop` — the macOS app: a Tauri shell that drives the recorder, runs the
+  bundled API, and serves the panel (`bundle.sh`, `setup-signing.sh`).
+- `apps/macos` — the native Swift recorder + the ScreenCaptureKit spike.

@@ -452,16 +452,21 @@ Seven sessions. Each has an **isolated, testable outcome** — prove each layer 
 
 ## 12. Definition of done (MVP)
 
-- [ ] **Record a real Meet/Teams-web call in the browser** — both other participants and your own mic captured — and get back TL;DR, summary, key points, action items, decisions, and topics.
-- [ ] Upload path also works for externally-recorded audio.
-- [ ] Long recordings (45+ min, tab backgrounded) capture and process correctly via chunked recording + compression + chunked transcription.
-- [ ] "Forgot to share tab audio" is caught and the user is prompted, not left with a silent recording.
-- [ ] Every Insight object validates against `MeetingInsightsSchema`; invalid model output is repaired, not crashed on.
-- [ ] Action items/decisions link back to their transcript span.
-- [ ] Meeting history persists and is browsable.
-- [ ] Failures surface a human-readable reason and can be retried.
-- [ ] A new dev can clone and run it from the README.
-- [ ] **The gut check:** on 3–5 of *your own* real meetings, you'd rather read the insights than the transcript.
+Shipped, and mostly beyond the original bar — capture moved from the browser to a native
+macOS app (roadmap A7) during the build, so several items are met more strongly than
+written. The one open item is the human judgement (the gut check), which only the user
+can close.
+
+- [x] **Record a real meeting** — both the other participants and your own mic captured — and get back TL;DR, summary, key points, action items, decisions, and topics. *Done via the native macOS app (system audio + mic), verified on real recordings; the browser tab-capture path also works.*
+- [x] Upload path also works for externally-recorded audio. *Verified end-to-end (.ogg/.webm/etc.).*
+- [x] Long recordings (45+ min) capture and process correctly via compression + chunked transcription. *The recorder encodes Opus (25 MB/hour vs the 500 MB cap; a WAV blew past it at 46 min), and Groq transcription chunks over its size limit. `pnpm test:compression` proves compression preserves speaker attribution.*
+- [x] "Forgot to share tab audio" is caught and the user is prompted, not left with a silent recording. *Browser path: `TAB_AUDIO_MISSING`. Native path: the recorder refuses a silent mic, and the live meters flag a dead/weak/clipping channel during the recording.*
+- [x] Every Insight object validates against `MeetingInsightsSchema`; invalid model output is repaired, not crashed on. *One repair-retry; never-valid output throws a readable error. Verified with a stub LLM.*
+- [x] Action items/decisions link back to their transcript span. *`sourceQuote` per item; clicking it scrolls to and highlights the segment.*
+- [x] Meeting history persists and is browsable. *Paginated list with search, a status filter, folders (A10) and a trash with restore/undo.*
+- [x] Failures surface a human-readable reason and can be retried. *`FAILED` status carries the reason; a Retry button re-runs. Re-extraction keeps prior versions for rollback.*
+- [x] A new dev can clone and run it from the README. *README covers both the desktop app (`setup-signing.sh` → `bundle.sh` → open) and `pnpm dev`; `.env.example` and `/health` verified.*
+- [ ] **The gut check:** on 3–5 of *your own* real meetings, you'd rather read the insights than the transcript. *Only the user can close this — run a handful of real meetings and judge.*
 
 ---
 
