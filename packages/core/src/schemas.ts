@@ -166,6 +166,8 @@ export const MeetingQuerySchema = z.object({
   /** Free-text match on the title. */
   q: z.string().trim().min(1).optional(),
   status: MeetingStatus.optional(),
+  /** Restrict to one folder. "none" means the meetings with no folder. */
+  folderId: z.string().optional(),
   /** The trash is a separate view; a deleted meeting never appears among live ones. */
   trash: z
     .enum(["true", "false"])
@@ -181,6 +183,7 @@ export const MeetingListItemSchema = z.object({
   durationSec: z.number().nullable(),
   createdAt: z.union([z.string(), z.date()]),
   deletedAt: z.union([z.string(), z.date()]).nullable(),
+  folderId: z.string().nullable(),
 });
 export type MeetingListItem = z.infer<typeof MeetingListItemSchema>;
 
@@ -192,3 +195,16 @@ export const MeetingListSchema = z.object({
   pages: z.number(),
 });
 export type MeetingList = z.infer<typeof MeetingListSchema>;
+
+// ── Folders: group meetings by recurring context ─────────────────────────────
+export const FolderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.union([z.string(), z.date()]),
+  /** How many live (non-trashed) meetings are in it — for the sidebar count. */
+  count: z.number().optional(),
+});
+export type Folder = z.infer<typeof FolderSchema>;
+
+/** A folder name: non-empty, trimmed, bounded so the sidebar stays readable. */
+export const FolderNameSchema = z.string().trim().min(1).max(60);

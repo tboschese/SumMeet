@@ -111,6 +111,10 @@ export function registerMeetingRoutes(
     const where: Prisma.MeetingWhereInput = {
       deletedAt: query.trash ? { not: null } : null,
       ...(query.status ? { status: query.status } : {}),
+      // "none" is the explicit unfiled bucket; any other id filters to that folder.
+      ...(query.folderId
+        ? { folderId: query.folderId === "none" ? null : query.folderId }
+        : {}),
       // SQLite has no case-insensitive `mode`, and titles are short: LIKE is enough,
       // and Prisma parameterises it, so the user's text can't be a wildcard injection.
       ...(query.q ? { title: { contains: query.q } } : {}),
@@ -129,6 +133,7 @@ export function registerMeetingRoutes(
           durationSec: true,
           createdAt: true,
           deletedAt: true,
+          folderId: true,
         },
       }),
       db.meeting.count({ where }),

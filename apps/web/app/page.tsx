@@ -12,17 +12,24 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MeetingStatus } from "@summeet/core/schemas";
 import {
+  createFolder,
+  deleteFolder,
   deleteMeetingForever,
   emptyTrash,
   extractPending,
   isProcessing,
+  listFolders,
   listMeetings,
+  moveMeetingToFolder,
+  renameFolder,
   restoreMeeting,
   trashMeeting,
+  type Folder,
   type MeetingList,
 } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { PromptDialog } from "./components/PromptDialog";
 import { RecordBar } from "./components/RecordBar";
 import { StatusBadge } from "./components/StatusBadge";
 
@@ -54,6 +61,20 @@ export default function HomePage() {
   const [status, setStatus] = useState<MeetingStatus | "">("");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  // "" = all, "none" = unfiled, otherwise a folder id.
+  const [folder, setFolder] = useState<string>("");
+  const [folders, setFolders] = useState<Folder[]>([]);
+
+  const loadFolders = useCallback(async () => {
+    try {
+      setFolders(await listFolders());
+    } catch {
+      // The folder bar just stays empty; the meeting list is unaffected.
+    }
+  }, []);
+  useEffect(() => {
+    void loadFolders();
+  }, [loadFolders]);
 
   // Debounce the search: typing shouldn't fire a request per keystroke.
   useEffect(() => {
@@ -72,6 +93,7 @@ export default function HomePage() {
           pageSize: PAGE_SIZE,
           q: query || undefined,
           status: status || undefined,
+          folderId: !trashView && folder ? folder : undefined,
           trash: trashView,
         }),
       );
@@ -79,7 +101,7 @@ export default function HomePage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : t("home.apiUnreachable"));
     }
-  }, [page, query, status, trashView, t]);
+  }, [page, query, status, folder, trashView, t]);
 
   const meetings = list?.meetings ?? null;
   const [summarizing, setSummarizing] = useState(false);
@@ -156,6 +178,69 @@ export default function HomePage() {
       setError(e instanceof Error ? e.message : t("home.deleteFailed"));
     }
   }, [refresh, t]);
+
+  // Folder create/rename/delete, all through the in-app dialogs.
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [renamingFolder, setRenamingFolder] = useState<Folder | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
+
+  const onCreateFolder = useCallback(
+    async (name: string) => {
+      setCreatingFolder(false);
+      try {
+        const created = await createFolder(name);
+        await loadFolders();
+        setFolder(created.id);
+        setPage(1);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("home.folderFailed"));
+      }
+    },
+    [loadFolders, t],
+  );
+
+  const onRenameFolder = useCallback(
+    async (name: string) => {
+      if (!renamingFolder) return;
+      const { id } = renamingFolder;
+      setRenamingFolder(null);
+      try {
+        await renameFolder(id, name);
+        await loadFolders();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("home.folderFailed"));
+      }
+    },
+    [renamingFolder, loadFolders, t],
+  );
+
+  const onDeleteFolder = useCallback(async () => {
+    if (!deletingFolder) return;
+    const { id } = deletingFolder;
+    setDeletingFolder(null);
+    try {
+      await deleteFolder(id);
+      if (folder === id) setFolder("");
+      await loadFolders();
+      void refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("home.folderFailed"));
+    }
+  }, [deletingFolder, folder, loadFolders, refresh, t]);
+
+  // Moving a meeting also refreshes the counts, so the folder bar stays honest.
+  const onMoveToFolder = useCallback(
+    async (id: string, folderId: string | null) => {
+      try {
+        await moveMeetingToFolder(id, folderId);
+        await loadFolders();
+        void refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("home.folderFailed"));
+      }
+    },
+    [loadFolders, refresh, t],
+  );
 
   // Poll every 3s while any meeting is still processing.
   useEffect(() => {
@@ -269,6 +354,52 @@ export default function HomePage() {
         </button>
       </div>
 
+      {/* Folder filter — chips, since the layout is a single centered column. */}
+      {!trashView && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <FolderChip label={t("home.folder.all")} active={folder === ""} onClick={() => { setFolder(""); setPage(1); }} />
+          {folders.map((f) => (
+            <FolderChip
+              key={f.id}
+              label={f.name}
+              count={f.count}
+              active={folder === f.id}
+              onClick={() => { setFolder(f.id); setPage(1); }}
+            />
+          ))}
+          <FolderChip
+            label={t("home.folder.unfiled")}
+            active={folder === "none"}
+            onClick={() => { setFolder("none"); setPage(1); }}
+          />
+          <button
+            type="button"
+            onClick={() => setCreatingFolder(true)}
+            className="rounded-full border border-dashed border-brand-light px-2.5 py-1 text-xs text-brand hover:bg-brand-tint"
+          >
+            {t("home.folder.new")}
+          </button>
+          {folder && folder !== "none" && (
+            <span className="ml-1 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setRenamingFolder(folders.find((f) => f.id === folder) ?? null)}
+                className="text-xs text-ink-soft/60 hover:text-brand"
+              >
+                {t("home.folder.rename")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeletingFolder(folders.find((f) => f.id === folder) ?? null)}
+                className="text-xs text-ink-soft/60 hover:text-red-600"
+              >
+                {t("home.folder.delete")}
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+
       <section className="mt-4">
         {meetings === null && !error ? (
           <p className="text-sm text-ink-soft/50">{t("common.loading")}</p>
@@ -333,6 +464,20 @@ export default function HomePage() {
                       </div>
                       <StatusBadge status={m.status} />
                     </Link>
+                    <select
+                      value={m.folderId ?? ""}
+                      onChange={(e) => onMoveToFolder(m.id, e.target.value || null)}
+                      title={t("home.folder.move")}
+                      aria-label={t("home.folder.move")}
+                      className="max-w-[8rem] shrink-0 truncate rounded-md border border-transparent bg-transparent py-1 text-xs text-ink-soft/60 hover:border-brand-light hover:text-brand"
+                    >
+                      <option value="">{t("home.folder.none")}</option>
+                      {folders.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={() => onTrash(m.id, m.title)}
@@ -408,9 +553,65 @@ export default function HomePage() {
         onCancel={() => setEmptying(false)}
       />
 
+      <PromptDialog
+        open={creatingFolder}
+        title={t("home.folder.newTitle")}
+        confirmLabel={t("home.folder.create")}
+        onConfirm={onCreateFolder}
+        onCancel={() => setCreatingFolder(false)}
+      />
+
+      <PromptDialog
+        open={renamingFolder !== null}
+        title={t("home.folder.renameTitle")}
+        initialValue={renamingFolder?.name ?? ""}
+        confirmLabel={t("home.folder.rename")}
+        onConfirm={onRenameFolder}
+        onCancel={() => setRenamingFolder(null)}
+      />
+
+      <ConfirmDialog
+        open={deletingFolder !== null}
+        title={t("home.folder.delete")}
+        body={t("home.folder.deleteWarning", { name: deletingFolder?.name ?? "" })}
+        confirmLabel={t("home.folder.delete")}
+        danger
+        onConfirm={onDeleteFolder}
+        onCancel={() => setDeletingFolder(null)}
+      />
+
       <footer className="mt-10 text-center text-xs text-ink-soft/50">
         {t("home.consent")}
       </footer>
     </main>
+  );
+}
+
+function FolderChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-1 text-xs ${
+        active
+          ? "border-brand bg-brand text-white"
+          : "border-brand-light text-brand hover:bg-brand-tint"
+      }`}
+    >
+      {label}
+      {count !== undefined && count > 0 && (
+        <span className={active ? "ml-1 opacity-80" : "ml-1 text-ink-soft/50"}>{count}</span>
+      )}
+    </button>
   );
 }

@@ -37,10 +37,22 @@ model User {
   createdAt DateTime  @default(now())
 }
 
+// Folders group meetings by recurring context (a client, a project, a team). A meeting
+// is in zero or one folder; deleting a folder detaches its meetings rather than taking
+// them down with it (they belong to the user, not the folder).
+model Folder {
+  id        String    @id @default(cuid())
+  name      String
+  meetings  Meeting[]
+  createdAt DateTime  @default(now())
+}
+
 model Meeting {
   id          String      @id @default(cuid())
   userId      String?
   user        User?       @relation(fields: [userId], references: [id])
+  folderId    String?
+  folder      Folder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
   title       String
   status      String      @default("UPLOADED") // MeetingStatus (Zod enum, §8.1)
   audioKey    String? // storage key, e.g. "{id}.webm"
@@ -58,6 +70,7 @@ model Meeting {
   deletedAt   DateTime?
 
   @@index([deletedAt, createdAt])
+  @@index([folderId])
 }
 
 model Transcript {

@@ -20,6 +20,7 @@ export interface MeetingListItem {
   durationSec: number | null;
   createdAt: string;
   deletedAt: string | null;
+  folderId: string | null;
 }
 
 /** A page of meetings, plus what the pager needs to render itself. */
@@ -39,6 +40,8 @@ export interface MeetingFilters {
   status?: MeetingStatus;
   /** The trash is its own view — deleted meetings never appear among live ones. */
   trash?: boolean;
+  /** Restrict to one folder; "none" is the unfiled bucket. */
+  folderId?: string;
 }
 
 export interface MeetingDetail {
@@ -75,6 +78,7 @@ export function listMeetings(filters: MeetingFilters = {}): Promise<MeetingList>
   if (filters.q) params.set("q", filters.q);
   if (filters.status) params.set("status", filters.status);
   if (filters.trash) params.set("trash", "true");
+  if (filters.folderId) params.set("folderId", filters.folderId);
   const query = params.toString();
   return fetch(`${API_BASE}/api/meetings${query ? `?${query}` : ""}`, {
     cache: "no-store",
@@ -110,6 +114,52 @@ export function trashCount(): Promise<{ count: number }> {
   return fetch(`${API_BASE}/api/meetings/trash/count`, { cache: "no-store" }).then(
     json<{ count: number }>,
   );
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** Live meetings in it. */
+  count: number;
+}
+
+export function listFolders(): Promise<Folder[]> {
+  return fetch(`${API_BASE}/api/folders`, { cache: "no-store" }).then(json<Folder[]>);
+}
+
+export function createFolder(name: string): Promise<Folder> {
+  return fetch(`${API_BASE}/api/folders`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  }).then(json<Folder>);
+}
+
+export function renameFolder(id: string, name: string): Promise<Folder> {
+  return fetch(`${API_BASE}/api/folders/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  }).then(json<Folder>);
+}
+
+export function deleteFolder(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/folders/${id}`, { method: "DELETE" }).then(
+    json<{ ok: true }>,
+  );
+}
+
+/** Move into a folder, or out of one with folderId: null. */
+export function moveMeetingToFolder(
+  id: string,
+  folderId: string | null,
+): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}/folder`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folderId }),
+  }).then(json<{ ok: true }>);
 }
 
 export function getMeeting(id: string): Promise<MeetingDetail> {
