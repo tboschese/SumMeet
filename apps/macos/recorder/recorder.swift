@@ -505,7 +505,17 @@ func joinStereo(system: URL, mic: URL, out: URL,
         "-filter_complex",
         "[0:a]" + systemFilter + "[l];[1:a]" + micFilter + "[r];"
             + "[l][r]join=inputs=2:channel_layout=stereo[a]",
-        "-map", "[a]", "-ar", "48000", out.path,
+        // Opus, not WAV. A 48 kHz stereo WAV is 11.5 MB/min, so a 46-minute meeting —
+        // an ordinary one — was rejected by the 500 MB upload cap. Opus at 64k stereo is
+        // 25 MB/hour and, unlike FLAC, its size doesn't swing with the content (measured
+        // 22-159 MB/hour for FLAC depending on the audio).
+        //
+        // The channels have to survive: diarization reads per-channel energy, and lossy
+        // stereo coding can couple them. Measured against the uncompressed WAV on
+        // simultaneously-active noise channels, Opus 64k gives identical attribution
+        // (pnpm test:compression).
+        "-map", "[a]", "-ar", "48000", "-c:a", "libopus", "-b:a", "64k", "-ac", "2",
+        out.path,
     ]
     try p.run()
     p.waitUntilExit()
@@ -534,8 +544,8 @@ func upload(file: URL, apiBase: String, title: String) throws -> String {
     field("channelLayout", SUMMEET_STEREO_LAYOUT)
 
     body.append("--\(boundary)\r\n".data(using: .utf8)!)
-    body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"recording.wav\"\r\n".data(using: .utf8)!)
-    body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+    body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"recording.ogg\"\r\n".data(using: .utf8)!)
+    body.append("Content-Type: audio/ogg\r\n\r\n".data(using: .utf8)!)
     body.append(try Data(contentsOf: file))
     body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 

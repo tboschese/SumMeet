@@ -18,7 +18,8 @@
     "test:extraction": "pnpm --filter @summeet/api test:extraction",
     "eval:engines": "pnpm --filter @summeet/api exec tsx src/cli/eval-engines.ts",
     "test:diarize": "pnpm --filter @summeet/api exec tsx src/cli/diarize-check.ts",
-    "test:recorder": "apps/macos/recorder/build.sh >/dev/null && apps/macos/recorder/build/recorder --selftest"
+    "test:recorder": "apps/macos/recorder/build.sh >/dev/null && apps/macos/recorder/build/recorder --selftest",
+    "test:compression": "pnpm --filter @summeet/api exec tsx src/cli/compress-check.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

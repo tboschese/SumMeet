@@ -416,7 +416,9 @@ fn parse_level(line: &str) -> Option<Levels> {
 fn spawn_recorder(title: &str, mic_device_id: Option<&str>) -> Result<Session, String> {
     let bin =
         recorder_path().ok_or("recorder binary not found — run apps/macos/recorder/build.sh")?;
-    let out = std::env::temp_dir().join(format!("summeet-{}.wav", std::process::id()));
+    // .ogg, not .wav: ffmpeg picks the container from the extension, and the recorder
+    // now encodes Opus (a 48 kHz stereo WAV blew past the 500 MB upload cap at 46 min).
+    let out = std::env::temp_dir().join(format!("summeet-{}.ogg", std::process::id()));
 
     let mut command = Command::new(bin);
     command

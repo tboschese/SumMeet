@@ -81,7 +81,11 @@ export function registerMeetingRoutes(
         channelLayout,
       },
     });
-    const audioKey = `${meeting.id}.webm`;
+    // Keep the real extension: the browser sends .webm, the desktop recorder .ogg.
+    // ffmpeg sniffs content rather than trusting names, but a key that lies about its
+    // format makes every later diagnosis harder.
+    const ext = filename?.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase() ?? ".webm";
+    const audioKey = `${meeting.id}${ext}`;
     await ctx.storage.put(audioKey, audio, contentType);
     await db.meeting.update({ where: { id: meeting.id }, data: { audioKey } });
 
