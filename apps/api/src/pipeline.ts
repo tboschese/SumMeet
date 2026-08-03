@@ -78,16 +78,35 @@ export async function extractAndPersist(
     meetingDate: meeting.createdAt,
   });
   const data = stringifyInsights(insights);
-  await db.insights.upsert({
-    where: { meetingId },
-    create: { meetingId, data, rawOutput, provider },
-    update: { data, rawOutput, provider },
-  });
+  // Keep the previous version instead of overwriting it: re-extracting can come back
+  // worse, and the audio is already gone, so the old insights are all there is to fall
+  // back to. Deactivate the current version, insert this one as active — in one
+  // transaction so there's never zero or two active versions.
+  await db.$transaction([
+    db.insights.updateMany({ where: { meetingId, active: true }, data: { active: false } }),
+    db.insights.create({ data: { meetingId, data, rawOutput, provider, active: true } }),
+  ]);
+  await pruneInsightVersions(meetingId);
   await db.meeting.update({
     where: { id: meetingId },
     data: { status: "COMPLETED", language: insights.language, error: null },
   });
   log?.(`extract ${meetingId}: COMPLETED`);
+}
+
+/** Cap the version history so it can't grow without bound. Never touches the active
+ * one, and keeps the newest few — enough to undo a bad re-run, not a full archive. */
+const MAX_INSIGHT_VERSIONS = 10;
+async function pruneInsightVersions(meetingId: string): Promise<void> {
+  const versions = await db.insights.findMany({
+    where: { meetingId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, active: true },
+  });
+  const removable = versions.filter((v) => !v.active).slice(MAX_INSIGHT_VERSIONS - 1);
+  if (removable.length > 0) {
+    await db.insights.deleteMany({ where: { id: { in: removable.map((v) => v.id) } } });
+  }
 }
 
 /** Fail-soft wrapper for the worker: a failure marks FAILED, never throws. */
@@ -234,20 +253,15 @@ export async function runPipeline(
       },
     );
 
-    await db.insights.upsert({
-      where: { meetingId },
-      create: {
-        meetingId,
-        data: stringifyInsights(insights),
-        rawOutput,
-        provider,
-      },
-      update: {
-        data: stringifyInsights(insights),
-        rawOutput,
-        provider,
-      },
-    });
+    // First extraction on the initial run, but go through the same versioned path so a
+    // later re-extraction has a baseline to keep.
+    await db.$transaction([
+      db.insights.updateMany({ where: { meetingId, active: true }, data: { active: false } }),
+      db.insights.create({
+        data: { meetingId, data: stringifyInsights(insights), rawOutput, provider, active: true },
+      }),
+    ]);
+    await pruneInsightVersions(meetingId);
 
     // 4. Done.
     await db.meeting.update({

@@ -61,7 +61,7 @@ model Meeting {
   language    String?
   error       String? // failure reason when status = FAILED
   transcript  Transcript?
-  insights    Insights?
+  insights    Insights[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   // Trash: a meeting is a decision record, and the audio behind it is already gone —
@@ -83,12 +83,18 @@ model Transcript {
   createdAt DateTime @default(now())
 }
 
+// Insights are versioned: re-extracting keeps the previous result instead of
+// overwriting it, so a worse re-run can be rolled back. Each extraction is a row; one
+// per meeting is `active` (what the detail view shows). Rollback flips which is active.
 model Insights {
   id        String   @id @default(cuid())
-  meetingId String   @unique
+  meetingId String
   meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   data      String // JSON conforming to MeetingInsightsSchema
   rawOutput String? // raw LLM output for debugging
   provider  String // e.g. "anthropic:claude-..."
+  active    Boolean  @default(true) // the version currently shown; exactly one per meeting
   createdAt DateTime @default(now())
+
+  @@index([meetingId, createdAt])
 }

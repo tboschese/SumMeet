@@ -9,6 +9,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { MeetingInsights } from "@summeet/core/schemas";
 import { DEFAULT_SECTIONS, type SectionKey } from "@summeet/core/sections";
 import {
+  activateInsightVersion,
   getMeeting,
   getSettings,
   isProcessing,
@@ -278,6 +279,20 @@ function MeetingDetail() {
     }
   }, [id, refresh]);
 
+  // Roll back to an earlier extraction. The previous version isn't discarded, so this
+  // is reversible in both directions.
+  const onSelectVersion = useCallback(
+    async (versionId: string) => {
+      try {
+        await activateInsightVersion(id, versionId);
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("detail.reextractFailed"));
+      }
+    },
+    [id, refresh, t],
+  );
+
   const [copied, setCopied] = useState(false);
   const onCopy = useCallback(async () => {
     if (!detail?.insights) return;
@@ -413,6 +428,33 @@ function MeetingDetail() {
           >
             {reextracting ? t("detail.generating") : t("detail.generate")}
           </button>
+        </div>
+      )}
+
+      {/* Version picker: appears only after a re-extraction, so there's history. */}
+      {insights && detail.insightVersions.length > 1 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-brand-light/60 bg-brand-tint/40 px-3 py-2 text-xs">
+          <span className="text-ink-soft/70">{t("detail.version.label")}</span>
+          {detail.insightVersions.map((v, i) => {
+            const n = detail.insightVersions.length - i; // newest = highest number
+            const isActive = insights.id === v.id;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => !isActive && onSelectVersion(v.id)}
+                title={`${new Date(v.createdAt).toLocaleString()} · ${v.provider}`}
+                className={`rounded-full border px-2.5 py-0.5 ${
+                  isActive
+                    ? "border-brand bg-brand text-white"
+                    : "border-brand-light text-brand hover:bg-brand-tint"
+                }`}
+              >
+                {t("detail.version.n", { n })}
+                {i === 0 ? ` · ${t("detail.version.latest")}` : ""}
+              </button>
+            );
+          })}
         </div>
       )}
 

@@ -60,7 +60,16 @@ export interface MeetingDetail {
     segments: TranscriptSegment[];
     provider: string;
   } | null;
-  insights: { data: MeetingInsights; provider: string } | null;
+  insights: { id: string; data: MeetingInsights; provider: string } | null;
+  /** Every extraction kept, newest first, so the UI can roll back. */
+  insightVersions: InsightVersion[];
+}
+
+export interface InsightVersion {
+  id: string;
+  provider: string;
+  active: boolean;
+  createdAt: string;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -201,6 +210,16 @@ export function renameMeeting(id: string, title: string): Promise<{ ok: true }> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   }).then(json<{ ok: true }>);
+}
+
+export function activateInsightVersion(
+  meetingId: string,
+  versionId: string,
+): Promise<{ ok: true }> {
+  return fetch(
+    `${API_BASE}/api/meetings/${meetingId}/insights/${versionId}/activate`,
+    { method: "POST" },
+  ).then(json<{ ok: true }>);
 }
 
 export function reextractMeeting(id: string): Promise<{ ok: true }> {

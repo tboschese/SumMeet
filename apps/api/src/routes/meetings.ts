@@ -187,15 +187,20 @@ export function registerMeetingRoutes(
     return { ok: true, purged: count };
   });
 
-  // Detail: meeting + transcript + insights (JSON parsed/validated on read).
+  // Detail: meeting + transcript + the active insights version (JSON parsed on read),
+  // plus the list of versions so the UI can offer a rollback.
   app.get<{ Params: { id: string } }>("/api/meetings/:id", async (request, reply) => {
     const meeting = await db.meeting.findUnique({
       where: { id: request.params.id },
-      include: { transcript: true, insights: true },
+      include: {
+        transcript: true,
+        insights: { orderBy: { createdAt: "desc" } },
+      },
     });
     if (!meeting) return reply.code(404).send({ error: "meeting not found" });
 
     const { transcript, insights, ...meetingRow } = meeting;
+    const active = insights.find((i) => i.active) ?? insights[0];
     return {
       meeting: meetingRow,
       transcript: transcript
@@ -205,9 +210,16 @@ export function registerMeetingRoutes(
             provider: transcript.provider,
           }
         : null,
-      insights: insights
-        ? { data: parseInsights(insights.data), provider: insights.provider }
+      insights: active
+        ? { id: active.id, data: parseInsights(active.data), provider: active.provider }
         : null,
+      // Newest first; the UI shows a picker only when there's more than one.
+      insightVersions: insights.map((i) => ({
+        id: i.id,
+        provider: i.provider,
+        active: i.active,
+        createdAt: i.createdAt,
+      })),
     };
   });
 
@@ -292,6 +304,27 @@ export function registerMeetingRoutes(
           .catch(() => {});
         return reply.code(500).send({ error: reason });
       }
+    },
+  );
+
+  // Roll back to an earlier insights version. Makes the chosen version active and the
+  // rest inactive — the current one isn't discarded, so you can roll forward again.
+  app.post<{ Params: { id: string; versionId: string } }>(
+    "/api/meetings/:id/insights/:versionId/activate",
+    async (request, reply) => {
+      const version = await db.insights.findFirst({
+        where: { id: request.params.versionId, meetingId: request.params.id },
+        select: { id: true },
+      });
+      if (!version) return reply.code(404).send({ error: "insights version not found" });
+      await db.$transaction([
+        db.insights.updateMany({
+          where: { meetingId: request.params.id, active: true },
+          data: { active: false },
+        }),
+        db.insights.update({ where: { id: version.id }, data: { active: true } }),
+      ]);
+      return { ok: true };
     },
   );
 
