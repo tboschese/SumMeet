@@ -3,9 +3,12 @@
 // Renders the insight sections the user picked, in the order they picked them
 // (SPEC A5). A section with no content is skipped rather than shown empty.
 
-import type { MeetingInsights } from "@summeet/core/schemas";
+import { isMine, type MeetingInsights } from "@summeet/core/schemas";
 import type { SectionKey } from "@summeet/core/sections";
 import { useT, type TFunction } from "@/lib/i18n";
+
+// Re-exported so existing importers (the detail page) keep working.
+export { isMine };
 
 const PRIORITY: Record<string, string> = {
   high: "bg-red-50 text-red-700",
@@ -13,10 +16,7 @@ const PRIORITY: Record<string, string> = {
   low: "bg-neutral-100 text-neutral-600",
 };
 
-/** The diarization (A1) marks the recorder's own commitments as owner "You". */
-export function isMine(owner: string | null): boolean {
-  return !!owner && /^(you|voc[eê])$/i.test(owner.trim());
-}
+
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -256,3 +256,4 @@ export function InsightSections({
     </div>
   );
 }
+

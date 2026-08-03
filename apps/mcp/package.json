@@ -1,0 +1,22 @@
+{
+  "name": "@summeet/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "summeet-mcp": "src/server.ts"
+  },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.0",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.0.0"
+  }
+}

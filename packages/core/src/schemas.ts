@@ -107,6 +107,12 @@ export const DecisionSchema = z.object({
 });
 export type Decision = z.infer<typeof DecisionSchema>;
 
+/** The diarization (A1) marks the recorder's own commitments as owner "You". A single
+ * source of truth for "is this mine", shared by the panel, the API and the MCP server. */
+export function isMine(owner: string | null | undefined): boolean {
+  return !!owner && /^(you|voc[e\u00ea])$/i.test(owner.trim());
+}
+
 export const TopicSchema = z.object({
   title: z.string(), // short label
   summary: z.string(), // 1–2 sentences
