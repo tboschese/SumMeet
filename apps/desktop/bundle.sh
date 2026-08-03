@@ -18,6 +18,15 @@ ROOT="$HERE/../.."
 APP="$HERE/build/SumMeet.app"
 PROFILE="${1:-debug}"
 
+# Unlock the login keychain up front. It is "no-timeout" (no idle auto-lock), but macOS
+# still locks it on sleep — so the first build after the Mac wakes hit a locked keychain
+# and codesign failed with errSecInternalComponent, every time. Unlocking here holds for
+# the whole build; if it's already unlocked this is a silent no-op. Prompts once (GUI)
+# only when actually locked.
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "SumMeet Dev"; then
+  security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
+fi
+
 echo "→ building the Swift recorder"
 "$ROOT/apps/macos/recorder/build.sh" >/dev/null
 
@@ -108,35 +117,27 @@ fi
 # own signed identifier it needed its own Screen Recording grant, a second entry to
 # approve. Same certificate, same requirement, one permission.
 #
-# codesign can print "errSecInternalComponent" (the key is in the keychain but locked
-# to non-interactive use) and *still exit 0*, silently leaving an ad-hoc-ish signature
-# — which is how permissions quietly went back to resetting every build. The lock only
-# bites the first sign after the keychain re-locks between processes; the next succeeds.
-# So sign, verify the authority actually took, and retry a couple of times before
-# giving up rather than shipping a bundle that only looks signed.
-sign_bundle() {
-  codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP/Contents/MacOS/recorder" 2>/dev/null
-  codesign --force "${SIGN[@]}" --identifier com.summeet.app "$APP" 2>/dev/null
+# Trust codesign's own exit code — that is the authority on whether signing worked. The
+# old check re-read the signature with `codesign -dvv | grep` right after signing and
+# often saw a stale view, so it reported failure and retried four times on a bundle that
+# was, in fact, correctly signed. A genuine failure (locked keychain →
+# errSecInternalComponent) is a non-zero exit, which this catches directly.
+sign_one() {
+  codesign --force "${SIGN[@]}" --identifier com.summeet.app "$1"
 }
 
 if [ "$STABLE" = "1" ]; then
-  ok=0
-  for attempt in 1 2 3 4; do
-    sign_bundle
-    if codesign -dvv "$APP" 2>&1 | grep -q "Authority=$IDENTITY"; then ok=1; break; fi
-    # A locked login keychain (the Mac slept during the build) blocks key access no
-    # matter the partition list. Nudge it unlocked and wait a beat before retrying.
-    echo "→ signing did not take (keychain locked); unlocking and retrying ($attempt)"
-    security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
-    sleep 2
-  done
-  if [ "$ok" = "0" ]; then
-    echo "✗ could not sign with '$IDENTITY' — the login keychain is locked for codesign." >&2
-    echo "  Unlock it (any Keychain Access action, or: security unlock-keychain) and rebuild." >&2
+  if ! sign_one "$APP/Contents/MacOS/recorder" || ! sign_one "$APP"; then
+    echo "✗ codesign with '$IDENTITY' failed — the login keychain is probably locked." >&2
+    echo "  Unlock it: security unlock-keychain \"\$HOME/Library/Keychains/login.keychain-db\"" >&2
+    echo "  (or run any Keychain Access action), then rebuild." >&2
     exit 1
   fi
+  # Belt and braces: a signed bundle must also verify.
+  codesign --verify --deep --strict "$APP" || { echo "✗ signature failed to verify" >&2; exit 1; }
 else
-  sign_bundle
+  sign_one "$APP/Contents/MacOS/recorder"
+  sign_one "$APP"
 fi
 
 # Ad-hoc only: the cdhash moved, so the old grant is dead weight that still shows as
