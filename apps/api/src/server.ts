@@ -6,6 +6,7 @@ import { MAX_UPLOAD_BYTES } from "@summeet/core";
 import Fastify from "fastify";
 import { buildContext } from "./context.js";
 import { registerFolderRoutes } from "./routes/folders.js";
+import { registerAskRoutes } from "./routes/ask.js";
 import { registerInsightRoutes } from "./routes/insights.js";
 import { registerMeetingRoutes } from "./routes/meetings.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
@@ -32,6 +33,7 @@ export async function buildServer() {
   registerMeetingRoutes(app, ctx, queue);
   registerFolderRoutes(app);
   registerInsightRoutes(app);
+  registerAskRoutes(app, ctx);
   registerSettingsRoutes(app);
 
   return app;

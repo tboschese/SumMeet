@@ -267,12 +267,20 @@ export default function HomePage() {
           </h1>
           <p className="mt-1 text-sm text-ink-soft/70">{t("home.tagline")}</p>
         </div>
-        <Link
-          href="/settings"
-          className="shrink-0 rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
-        >
-          {t("common.settings")}
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/ask"
+            className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
+          >
+            {t("ask.link")}
+          </Link>
+          <Link
+            href="/settings"
+            className="rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
+          >
+            {t("common.settings")}
+          </Link>
+        </div>
       </header>
 
       {!trashView && <RecordBar onCreated={refresh} />}

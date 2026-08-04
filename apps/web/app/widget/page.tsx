@@ -1,36 +1,38 @@
 "use client";
 
-// The floating recorder widget (a small always-on-top window the desktop app shows,
-// e.g. when it detects a meeting). Same recording controls as RecordBar, stripped to a
-// single button + a live meter — so you can start/stop without switching to the app, and
-// see at a glance that both channels are actually being captured.
+// The floating recorder widget — a small always-on-top button the desktop app shows, and
+// surfaces itself when a meeting is detected (suggesting you record). Idle it's just a
+// round button; recording it expands to show the two live channel meters; and it takes
+// notes that attach to the meeting and show alongside the transcript.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveMeetingNotes } from "@/lib/api";
 import { isNativeShell, nativeRecorder, widgetWindow, type CaptureStatus } from "@/lib/native";
 
-/** RMS is linear, hearing is not: map to dB so normal speech fills the bar. */
+// Window sizes per state (logical px); the chromeless window *is* the layout.
+const SIZE = {
+  button: { w: 64, h: 64 },
+  suggest: { w: 240, h: 64 },
+  bar: { w: 320, h: 64 },
+  notes: { w: 320, h: 220 },
+};
+
 function width(rms: number): number {
   if (rms <= 0) return 0;
   return Math.min(100, Math.max(0, ((20 * Math.log10(rms) + 60) / 50) * 100));
 }
-
 function clock(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
 }
 
 export default function WidgetPage() {
   const [mode, setMode] = useState<"idle" | "recording" | "uploading">("idle");
   const [status, setStatus] = useState<CaptureStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [suggest, setSuggest] = useState(false); // a meeting was detected
   const [notes, setNotes] = useState("");
   const [notesOpen, setNotesOpen] = useState(false);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Reflect state the app already holds: another window (or auto-start) may have begun
-  // recording, and the widget must not disagree with it.
   useEffect(() => {
     if (!isNativeShell()) return;
     const tick = async () => {
@@ -44,18 +46,22 @@ export default function WidgetPage() {
     };
     void tick();
     poll.current = setInterval(tick, 250);
+    // The app flags a detected meeting on the widget's URL (#suggest) when it surfaces it.
+    setSuggest(window.location.hash.includes("suggest"));
+    const onHash = () => setSuggest(window.location.hash.includes("suggest"));
+    window.addEventListener("hashchange", onHash);
     return () => {
       if (poll.current) clearInterval(poll.current);
+      window.removeEventListener("hashchange", onHash);
     };
   }, []);
 
   const start = useCallback(async () => {
-    setError(null);
+    setSuggest(false);
     try {
       await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`);
       setMode("recording");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "failed");
+    } catch {
       setMode("idle");
     }
   }, []);
@@ -63,60 +69,88 @@ export default function WidgetPage() {
   const stop = useCallback(async () => {
     setMode("uploading");
     try {
-      // stop() hands back the meeting id the recorder just created, so the notes typed
-      // during the call can be attached to it — they'll show alongside the transcript.
       const meetingId = await nativeRecorder.stop();
       const typed = notes.trim();
-      if (meetingId && typed) {
-        await saveMeetingNotes(meetingId, typed).catch(() => {
-          /* the recording is safe; notes are best-effort */
-        });
-      }
+      if (meetingId && typed) await saveMeetingNotes(meetingId, typed).catch(() => {});
       setNotes("");
       setNotesOpen(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "failed");
+    } catch {
+      /* the recording is safe */
     } finally {
       setMode("idle");
     }
   }, [notes]);
 
-  // The window is chromeless, so it has to grow/shrink itself for the notes area.
-  useEffect(() => {
-    void widgetWindow.resize(notesOpen);
-  }, [notesOpen]);
-
   const recording = mode === "recording" || status?.recording;
 
+  // Drive the window size from the state.
+  useEffect(() => {
+    const s = recording ? (notesOpen ? SIZE.notes : SIZE.bar) : suggest ? SIZE.suggest : SIZE.button;
+    void widgetWindow.resize(s.w, s.h);
+  }, [recording, notesOpen, suggest]);
+
+  // Idle, no meeting detected: just the round record button.
+  if (!recording && !suggest) {
+    return (
+      <main className="flex h-screen w-screen items-center justify-center bg-transparent">
+        <button
+          type="button"
+          onClick={start}
+          title="Record"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-lg hover:bg-red-700"
+          data-tauri-drag-region
+        >
+          <span className="h-4 w-4 rounded-full bg-white" />
+        </button>
+      </main>
+    );
+  }
+
+  // Meeting detected, not yet recording: suggest starting.
+  if (!recording && suggest) {
+    return (
+      <main className="flex h-screen w-screen items-center gap-2 rounded-2xl bg-white/95 px-3 shadow-lg" data-tauri-drag-region>
+        <button
+          type="button"
+          onClick={start}
+          className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700"
+        >
+          <span className="h-2.5 w-2.5 rounded-full bg-white" />
+          Record
+        </button>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-soft/80">Meeting detected</span>
+        <button
+          type="button"
+          onClick={() => widgetWindow.hide()}
+          className="shrink-0 px-1 text-ink-soft/40 hover:text-ink-soft"
+          title="Dismiss"
+        >
+          ✕
+        </button>
+      </main>
+    );
+  }
+
+  // Recording: controls + live meters, with a notes area.
   return (
-    <main className="flex h-screen w-screen select-none flex-col bg-white/95">
+    <main className="flex h-screen w-screen flex-col rounded-2xl bg-white/95 shadow-lg">
       <div className="flex items-center gap-2 px-3 py-2" data-tauri-drag-region>
         <button
           type="button"
-          onClick={recording ? stop : start}
+          onClick={stop}
           disabled={mode === "uploading"}
-          className={`flex h-9 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium text-white disabled:opacity-60 ${
-            recording ? "bg-ink hover:bg-ink/90" : "bg-red-600 hover:bg-red-700"
-          }`}
-          title={recording ? "Stop" : "Record"}
+          className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-ink px-3 text-sm font-medium text-white hover:bg-ink/90 disabled:opacity-60"
+          title="Stop"
         >
-          <span
-            className={`h-2.5 w-2.5 rounded-full bg-white ${recording ? "animate-pulse" : ""}`}
-          />
-          {mode === "uploading" ? "…" : recording ? clock(status?.elapsed_secs ?? 0) : "Rec"}
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
+          {mode === "uploading" ? "…" : clock(status?.elapsed_secs ?? 0)}
         </button>
 
-        {recording ? (
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <Bar level={status?.system ?? 0} label="others" />
-            <Bar level={status?.mic ?? 0} label="you" clipping={(status?.mic_peak ?? 0) >= 0.98} />
-          </div>
-        ) : (
-          <span className="flex-1 truncate text-xs text-ink-soft/60">{error ?? "SumMeet"}</span>
-        )}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <Bar level={status?.system ?? 0} />
+          <Bar level={status?.mic ?? 0} clipping={(status?.mic_peak ?? 0) >= 0.98} />
+        </div>
 
-        {/* Notes toggle: available while recording, and stays open so you can keep
-            jotting. The dot marks unsaved notes. */}
         <button
           type="button"
           onClick={() => setNotesOpen((o) => !o)}
@@ -147,17 +181,13 @@ export default function WidgetPage() {
   );
 }
 
-function Bar({ level, label, clipping }: { level: number; label: string; clipping?: boolean }) {
+function Bar({ level, clipping }: { level: number; clipping?: boolean }) {
   return (
-    <div className="flex items-center gap-1.5" title={label}>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-brand-tint">
-        <div
-          className={`h-full rounded-full transition-[width] duration-100 ${
-            clipping ? "bg-amber-500" : "bg-brand"
-          }`}
-          style={{ width: `${clipping ? 100 : width(level)}%` }}
-        />
-      </div>
+    <div className="h-1.5 overflow-hidden rounded-full bg-brand-tint">
+      <div
+        className={`h-full rounded-full transition-[width] duration-100 ${clipping ? "bg-amber-500" : "bg-brand"}`}
+        style={{ width: `${clipping ? 100 : width(level)}%` }}
+      />
     </div>
   );
 }

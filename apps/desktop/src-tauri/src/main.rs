@@ -722,11 +722,15 @@ fn build_widget(handle: &tauri::AppHandle) -> tauri::Result<()> {
     if handle.get_webview_window(WIDGET_LABEL).is_some() {
         return Ok(());
     }
+    // Starts as a small floating button; the page grows it (resize_widget) when it starts
+    // recording or opens notes. Transparent so the button can be a rounded pill.
     let win = WebviewWindowBuilder::new(handle, WIDGET_LABEL, WebviewUrl::App("widget.html".into()))
         .title("SumMeet")
-        .inner_size(320.0, 64.0)
+        .inner_size(64.0, 64.0)
         .resizable(false)
         .decorations(false)
+        .transparent(true)
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
@@ -736,7 +740,7 @@ fn build_widget(handle: &tauri::AppHandle) -> tauri::Result<()> {
     if let Ok(Some(monitor)) = win.current_monitor() {
         let size = monitor.size();
         let scale = win.scale_factor().unwrap_or(1.0);
-        let w = (320.0 * scale) as i32;
+        let w = (64.0 * scale) as i32;
         let x = size.width as i32 - w - 24;
         let _ = win.set_position(tauri::PhysicalPosition::new(x.max(0), 48));
     }
@@ -745,8 +749,17 @@ fn build_widget(handle: &tauri::AppHandle) -> tauri::Result<()> {
 
 fn show_widget(handle: &tauri::AppHandle) {
     if let Some(win) = handle.get_webview_window(WIDGET_LABEL) {
+        let _ = win.eval("location.hash=''"); // manual open: just the button
         let _ = win.show();
         let _ = win.set_focus();
+    }
+}
+
+/// Show the widget in its "meeting detected — record?" state.
+fn suggest_widget(handle: &tauri::AppHandle) {
+    if let Some(win) = handle.get_webview_window(WIDGET_LABEL) {
+        let _ = win.eval("location.hash='suggest';window.dispatchEvent(new HashChangeEvent('hashchange'))");
+        let _ = win.show();
     }
 }
 
@@ -762,28 +775,96 @@ fn hide_widget(app: tauri::AppHandle) {
     }
 }
 
-/// Grow the widget when the notes area opens, shrink it back when it closes — the window
-/// is chromeless, so its size *is* the layout.
+/// Size the chromeless widget to fit its current state (idle = a small button, recording
+/// = the bar, notes = taller), keeping it anchored to the top-right corner so it grows
+/// leftward/down instead of walking off-screen.
 #[tauri::command]
-fn resize_widget(app: tauri::AppHandle, expanded: bool) {
+fn resize_widget(app: tauri::AppHandle, width: f64, height: f64) {
     if let Some(win) = app.get_webview_window(WIDGET_LABEL) {
-        let height = if expanded { 220.0 } else { 64.0 };
-        let _ = win.set_size(tauri::LogicalSize::new(320.0, height));
+        let _ = win.set_size(tauri::LogicalSize::new(width, height));
+        if let Ok(Some(monitor)) = win.current_monitor() {
+            let scale = win.scale_factor().unwrap_or(1.0);
+            let mon = monitor.size();
+            let right = mon.width as f64 - 24.0 * scale;
+            let x = (right - width * scale).max(0.0) as i32;
+            let _ = win.set_position(tauri::PhysicalPosition::new(x, (48.0 * scale) as i32));
+        }
     }
 }
 
-/// True when a known meeting app is *in a call*, not merely open.
+/// True when a meeting is in progress — native app or browser tab.
 ///
-/// Best-effort and process-based: Zoom spawns `CptHost` only while in a meeting, and the
-/// desktop Teams/Webex/Meet(Chrome) helpers are harder to tell apart from an idle app, so
-/// this errs toward Zoom's reliable signal plus the meeting apps being frontmost. Browser
-/// meetings (Meet/Zoom web) aren't caught yet — the widget is also openable by hand.
+/// Zoom spawns `CptHost` only while in a call (a reliable native signal). For browser
+/// meetings we ask each *running* browser for its open tab URLs via AppleScript and match
+/// the known meeting hosts. Querying a browser needs Automation permission (macOS prompts
+/// once, per browser); anything that errors just counts as "no meeting".
 fn meeting_in_progress() -> bool {
-    let out = match Command::new("pgrep").arg("-l").arg("-f").arg("CptHost|zoom.us/.*Meeting").output() {
+    if let Ok(o) = Command::new("pgrep").arg("-f").arg("CptHost").output() {
+        if !o.stdout.is_empty() {
+            return true;
+        }
+    }
+    browser_meeting_open()
+}
+
+const MEETING_HOSTS: &[&str] = &[
+    "meet.google.com",
+    "zoom.us/wc",
+    "zoom.us/j",
+    "teams.microsoft.com",
+    "teams.live.com",
+    "whereby.com",
+    "meet.jit.si",
+];
+
+fn browser_meeting_open() -> bool {
+    // Chromium browsers share the "URL of tabs" AppleScript vocabulary; Safari differs.
+    let chromium = [
+        "Google Chrome",
+        "Google Chrome Beta",
+        "Brave Browser",
+        "Microsoft Edge",
+        "Arc",
+        "Vivaldi",
+    ];
+    for app in chromium {
+        if !app_running(app) {
+            continue;
+        }
+        let script = format!(
+            "tell application \"{app}\" to get URL of tabs of every window"
+        );
+        if urls_contain_meeting(&script) {
+            return true;
+        }
+    }
+    if app_running("Safari") {
+        let script =
+            "tell application \"Safari\" to get URL of tabs of every window".to_string();
+        if urls_contain_meeting(&script) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Running, not merely installed — so we never launch a browser just to inspect it.
+fn app_running(name: &str) -> bool {
+    Command::new("pgrep")
+        .arg("-x")
+        .arg(name)
+        .output()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+fn urls_contain_meeting(script: &str) -> bool {
+    let out = match Command::new("osascript").arg("-e").arg(script).output() {
         Ok(o) => o,
         Err(_) => return false,
     };
-    !out.stdout.is_empty()
+    let urls = String::from_utf8_lossy(&out.stdout);
+    MEETING_HOSTS.iter().any(|h| urls.contains(h))
 }
 
 /// Poll for a meeting and surface the widget when one starts. Never hides it while
@@ -797,7 +878,7 @@ fn start_meeting_watch(handle: tauri::AppHandle) {
             let recording = read_status(&handle.state::<Recording>()).recording;
 
             if in_meeting && !was_in_meeting {
-                show_widget(&handle); // a meeting just started
+                suggest_widget(&handle); // a meeting just started — offer to record
             } else if !in_meeting && was_in_meeting && !recording {
                 if let Some(win) = handle.get_webview_window(WIDGET_LABEL) {
                     let _ = win.hide();

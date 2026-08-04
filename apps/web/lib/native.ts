@@ -71,7 +71,7 @@ export const nativeRecorder = {
 
 /** The floating widget window controls (desktop only; no-ops elsewhere). */
 export const widgetWindow = {
-  resize: (expanded: boolean) =>
-    isNativeShell() ? invoke<void>("resize_widget", { expanded }) : Promise.resolve(),
+  resize: (width: number, height: number) =>
+    isNativeShell() ? invoke<void>("resize_widget", { width, height }) : Promise.resolve(),
   hide: () => (isNativeShell() ? invoke<void>("hide_widget") : Promise.resolve()),
 };

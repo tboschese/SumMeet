@@ -205,6 +205,21 @@ export function retryMeeting(id: string): Promise<CreateResult> {
   );
 }
 
+export interface AskResult {
+  answer: string;
+  meetings: number;
+  provider?: string;
+}
+
+/** Ask a natural-language question of your meetings; the API retrieves + the LLM answers. */
+export function askMeetings(question: string): Promise<AskResult> {
+  return fetch(`${API_BASE}/api/ask`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  }).then(json<AskResult>);
+}
+
 export function saveMeetingNotes(id: string, notes: string): Promise<{ ok: true }> {
   return fetch(`${API_BASE}/api/meetings/${id}`, {
     method: "PATCH",
