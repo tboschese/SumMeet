@@ -10,6 +10,7 @@ import type { MeetingInsights } from "@summeet/core/schemas";
 import { DEFAULT_SECTIONS, type SectionKey } from "@summeet/core/sections";
 import {
   activateInsightVersion,
+  enhanceNotes as enhanceMeetingNotes,
   getMeeting,
   getSettings,
   isProcessing,
@@ -266,6 +267,19 @@ function MeetingDetail() {
     [id, refresh, t],
   );
 
+  const [enhancing, setEnhancing] = useState(false);
+  const onEnhanceNotes = useCallback(async () => {
+    setEnhancing(true);
+    try {
+      await enhanceMeetingNotes(id);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("detail.notes.enhanceFailed"));
+    } finally {
+      setEnhancing(false);
+    }
+  }, [id, refresh, t]);
+
   const [reextracting, setReextracting] = useState(false);
   const onReextract = useCallback(async () => {
     setReextracting(true);
@@ -468,12 +482,50 @@ function MeetingDetail() {
 
       {meeting.notes?.trim() && (
         <section className="mt-8">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-soft/60">
-            {t("detail.notes")}
-          </h2>
-          <p className="whitespace-pre-wrap rounded-lg border border-brand-light/60 bg-brand-tint/30 p-3 text-sm text-ink">
-            {meeting.notes}
-          </p>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-soft/60">
+              {t("detail.notes")}
+            </h2>
+            {transcript && (
+              <button
+                type="button"
+                onClick={onEnhanceNotes}
+                disabled={enhancing}
+                className="text-xs text-brand hover:text-brand-dark disabled:opacity-50"
+              >
+                {enhancing
+                  ? t("detail.notes.enhancing")
+                  : detail.enhancedNotes
+                    ? t("detail.notes.reenhance")
+                    : t("detail.notes.enhance")}
+              </button>
+            )}
+          </div>
+
+          {detail.enhancedNotes ? (
+            // Your line in dark, the AI's expansion in gray beneath it.
+            <ul className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-4">
+              {detail.enhancedNotes.notes.map((n, i) => (
+                <li key={i}>
+                  <p className="text-sm font-medium text-ink">{n.note}</p>
+                  {n.detail && <p className="mt-0.5 text-sm text-ink-soft/70">{n.detail}</p>}
+                  {n.sourceQuote && (
+                    <button
+                      type="button"
+                      onClick={() => scrollToQuote(n.sourceQuote)}
+                      className="mt-0.5 block text-left text-xs text-brand/80 hover:underline"
+                    >
+                      “{n.sourceQuote.length > 90 ? `${n.sourceQuote.slice(0, 90)}…` : n.sourceQuote}”
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="whitespace-pre-wrap rounded-lg border border-brand-light/60 bg-brand-tint/30 p-3 text-sm text-ink">
+              {meeting.notes}
+            </p>
+          )}
         </section>
       )}
 

@@ -100,3 +100,5 @@ export {
   buildRepairPrompt,
   type PromptOptions,
 } from "./prompt.js";
+
+export { enhanceNotes, splitNotes, type EnhanceResult } from "./enhance-notes.js";

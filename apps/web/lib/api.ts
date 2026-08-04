@@ -62,8 +62,19 @@ export interface MeetingDetail {
     provider: string;
   } | null;
   insights: { id: string; data: MeetingInsights; provider: string } | null;
+  /** The user's notes expanded from the transcript; null until run. */
+  enhancedNotes: EnhancedNotes | null;
   /** Every extraction kept, newest first, so the UI can roll back. */
   insightVersions: InsightVersion[];
+}
+
+export interface EnhancedNote {
+  note: string;
+  detail: string;
+  sourceQuote: string | null;
+}
+export interface EnhancedNotes {
+  notes: EnhancedNote[];
 }
 
 export interface InsightVersion {
@@ -218,6 +229,12 @@ export function askMeetings(question: string): Promise<AskResult> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ question }),
   }).then(json<AskResult>);
+}
+
+export function enhanceNotes(id: string): Promise<{ ok: true; enhancedNotes: EnhancedNotes }> {
+  return fetch(`${API_BASE}/api/meetings/${id}/enhance-notes`, { method: "POST" }).then(
+    json<{ ok: true; enhancedNotes: EnhancedNotes }>,
+  );
 }
 
 export function saveMeetingNotes(id: string, notes: string): Promise<{ ok: true }> {

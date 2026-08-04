@@ -2,6 +2,8 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import {
   ACCEPTED_AUDIO_HINT,
+  enhanceNotes,
+  EnhancedNotesSchema,
   isAcceptedAudio,
   isSummeetStereoLayout,
   MeetingQuerySchema,
@@ -15,6 +17,7 @@ import type { PipelineContext } from "../context.js";
 import { db } from "../db.js";
 import type { Queue } from "../queue.js";
 import { extractAndPersist } from "../pipeline.js";
+import { getSecrets, getSettings } from "../settings.js";
 
 function defaultTitle(filename?: string): string {
   if (filename) {
@@ -201,8 +204,18 @@ export function registerMeetingRoutes(
 
     const { transcript, insights, ...meetingRow } = meeting;
     const active = insights.find((i) => i.active) ?? insights[0];
+    // The user's notes, expanded from the transcript. Parsed here so the
+    // panel gets structure; empty until enhancement runs.
+    let enhancedNotes: unknown = null;
+    if (meetingRow.enhancedNotes) {
+      const parsed = EnhancedNotesSchema.safeParse(
+        JSON.parse(meetingRow.enhancedNotes),
+      );
+      if (parsed.success && parsed.data.notes.length > 0) enhancedNotes = parsed.data;
+    }
     return {
       meeting: meetingRow,
+      enhancedNotes,
       transcript: transcript
         ? {
             fullText: transcript.fullText,
@@ -315,6 +328,38 @@ export function registerMeetingRoutes(
           .update({ where: { id: meeting.id }, data: { status: "FAILED", error: reason } })
           .catch(() => {});
         return reply.code(500).send({ error: reason });
+      }
+    },
+  );
+
+  // Enhance the user's notes from the transcript. Needs a transcript and
+  // some notes; stores the result on the meeting and returns it.
+  app.post<{ Params: { id: string } }>(
+    "/api/meetings/:id/enhance-notes",
+    async (request, reply) => {
+      const meeting = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, notes: true, transcript: { select: { fullText: true } } },
+      });
+      if (!meeting) return reply.code(404).send({ error: "meeting not found" });
+      if (!meeting.transcript) {
+        return reply.code(400).send({ error: "no transcript to enhance from" });
+      }
+      if (!meeting.notes.trim()) {
+        return reply.code(400).send({ error: "no notes to enhance" });
+      }
+      const settings = await getSettings();
+      const { llm } = ctx.resolve(settings, await getSecrets());
+      try {
+        const { enhanced } = await enhanceNotes(meeting.notes, meeting.transcript.fullText, llm);
+        await db.meeting.update({
+          where: { id: meeting.id },
+          data: { enhancedNotes: JSON.stringify(enhanced) },
+        });
+        return { ok: true, enhancedNotes: enhanced };
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return reply.code(502).send({ error: reason });
       }
     },
   );

@@ -11,6 +11,7 @@ import {
   stringifyInsights,
   stringifySegments,
   transcribeFile,
+  enhanceNotes,
 } from "@summeet/core";
 import type { PipelineContext } from "./context.js";
 import { db } from "./db.js";
@@ -91,6 +92,22 @@ export async function extractAndPersist(
     where: { id: meetingId },
     data: { status: "COMPLETED", language: insights.language, error: null },
   });
+
+  // If the user jotted notes during the meeting, expand them from the transcript now
+  // Best-effort, never fails the meeting. Notes are usually saved by
+  // the widget just after upload, so they're here by the time extraction finishes.
+  if (meeting.notes.trim()) {
+    try {
+      const { enhanced } = await enhanceNotes(meeting.notes, meeting.transcript.fullText, llm);
+      await db.meeting.update({
+        where: { id: meetingId },
+        data: { enhancedNotes: JSON.stringify(enhanced) },
+      });
+      log?.(`extract ${meetingId}: enhanced ${enhanced.notes.length} notes`);
+    } catch (err) {
+      log?.(`extract ${meetingId}: note enhancement skipped — ${String(err)}`);
+    }
+  }
   log?.(`extract ${meetingId}: COMPLETED`);
 }
 

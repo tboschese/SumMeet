@@ -61,6 +61,7 @@ model Meeting {
   language    String?
   error       String? // failure reason when status = FAILED
   notes       String  @default("") // notes you type during the meeting (the widget)
+  enhancedNotes String @default("") // JSON EnhancedNotes: your notes expanded from the transcript
   transcript  Transcript?
   insights    Insights[]
   createdAt   DateTime    @default(now())

@@ -214,3 +214,19 @@ export type Folder = z.infer<typeof FolderSchema>;
 
 /** A folder name: non-empty, trimmed, bounded so the sidebar stays readable. */
 export const FolderNameSchema = z.string().trim().min(1).max(60);
+
+// ── Enhanced notes: the user's own notes, expanded from the transcript ──
+// Each of the user's note lines becomes an anchor; the model fills in what was actually
+// said about it, grounded in a quote. The user's text is preserved verbatim (shown dark);
+// the detail is the AI's addition (shown gray). Never invents — detail may be empty.
+export const EnhancedNoteSchema = z.object({
+  note: z.string(), // the user's original line, verbatim
+  detail: z.string().default(""), // AI expansion from the transcript; "" if not covered
+  sourceQuote: z.string().nullable().default(null),
+});
+export type EnhancedNote = z.infer<typeof EnhancedNoteSchema>;
+
+export const EnhancedNotesSchema = z.object({
+  notes: z.array(EnhancedNoteSchema).default([]),
+});
+export type EnhancedNotes = z.infer<typeof EnhancedNotesSchema>;
