@@ -68,3 +68,10 @@ export const nativeRecorder = {
   /** The input devices to offer in the picker; the default is flagged. */
   microphones: () => invoke<Microphone[]>("list_microphones"),
 };
+
+/** The floating widget window controls (desktop only; no-ops elsewhere). */
+export const widgetWindow = {
+  resize: (expanded: boolean) =>
+    isNativeShell() ? invoke<void>("resize_widget", { expanded }) : Promise.resolve(),
+  hide: () => (isNativeShell() ? invoke<void>("hide_widget") : Promise.resolve()),
+};

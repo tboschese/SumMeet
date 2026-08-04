@@ -266,17 +266,29 @@ export function registerMeetingRoutes(
   );
 
   // Rename: update the meeting title.
-  app.patch<{ Params: { id: string }; Body: { title?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { title?: string; notes?: string } }>(
     "/api/meetings/:id",
     async (request, reply) => {
       const title = request.body?.title?.trim();
-      if (!title) return reply.code(400).send({ error: "title is required" });
+      const notes = request.body?.notes; // may be "" to clear; undefined = leave as is
+      if (title === undefined && notes === undefined) {
+        return reply.code(400).send({ error: "nothing to update" });
+      }
+      if (title !== undefined && !title) {
+        return reply.code(400).send({ error: "title cannot be empty" });
+      }
       const exists = await db.meeting.findUnique({
         where: { id: request.params.id },
         select: { id: true },
       });
       if (!exists) return reply.code(404).send({ error: "meeting not found" });
-      await db.meeting.update({ where: { id: exists.id }, data: { title } });
+      await db.meeting.update({
+        where: { id: exists.id },
+        data: {
+          ...(title !== undefined ? { title } : {}),
+          ...(notes !== undefined ? { notes } : {}),
+        },
+      });
       return { ok: true };
     },
   );

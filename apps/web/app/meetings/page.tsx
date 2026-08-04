@@ -466,6 +466,17 @@ function MeetingDetail() {
         />
       )}
 
+      {meeting.notes?.trim() && (
+        <section className="mt-8">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-soft/60">
+            {t("detail.notes")}
+          </h2>
+          <p className="whitespace-pre-wrap rounded-lg border border-brand-light/60 bg-brand-tint/30 p-3 text-sm text-ink">
+            {meeting.notes}
+          </p>
+        </section>
+      )}
+
       {transcript && (
         <section className="mt-10">
           <button

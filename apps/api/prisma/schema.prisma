@@ -60,6 +60,7 @@ model Meeting {
   durationSec Int?
   language    String?
   error       String? // failure reason when status = FAILED
+  notes       String  @default("") // notes you type during the meeting (the widget)
   transcript  Transcript?
   insights    Insights[]
   createdAt   DateTime    @default(now())

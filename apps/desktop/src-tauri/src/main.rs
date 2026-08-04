@@ -644,7 +644,15 @@ fn channel_label(level: f32, recent_peak: f32, elapsed: u64) -> char {
 const TRAY_ICON: &[u8] = include_bytes!("../icons/tray-icon@2x.png");
 
 fn start_menu_bar_indicator(handle: tauri::AppHandle) -> tauri::Result<()> {
-    let mut tray = tauri::tray::TrayIconBuilder::with_id(TRAY_ID);
+    use tauri::tray::TrayIconEvent;
+    let mut tray = tauri::tray::TrayIconBuilder::with_id(TRAY_ID)
+        // Clicking the menu-bar item pops the floating recorder — the fastest way to
+        // start a recording without hunting for the app window.
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { .. } = event {
+                show_widget(tray.app_handle());
+            }
+        });
     match tauri::image::Image::from_bytes(TRAY_ICON) {
         Ok(icon) => tray = tray.icon(icon).icon_as_template(true),
         // Losing the icon is cosmetic; losing the meter is not. Carry on with text.
@@ -699,6 +707,105 @@ fn start_menu_bar_indicator(handle: tauri::AppHandle) -> tauri::Result<()> {
         }
     });
     Ok(())
+}
+
+// ── Floating recorder widget ─────────────────────────────────────────────────
+// A small always-on-top window with a Record button, so you can start a recording
+// without switching to the app — and, when a meeting is detected, it surfaces itself.
+
+const WIDGET_LABEL: &str = "widget";
+
+/// Create the widget window once, hidden. Small, borderless, always-on-top, off the
+/// task switcher — it's a control, not a window you manage.
+fn build_widget(handle: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if handle.get_webview_window(WIDGET_LABEL).is_some() {
+        return Ok(());
+    }
+    let win = WebviewWindowBuilder::new(handle, WIDGET_LABEL, WebviewUrl::App("widget.html".into()))
+        .title("SumMeet")
+        .inner_size(320.0, 64.0)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .build()?;
+    // Top-right, a little in from the corner. Best-effort; ignore if the monitor query
+    // fails.
+    if let Ok(Some(monitor)) = win.current_monitor() {
+        let size = monitor.size();
+        let scale = win.scale_factor().unwrap_or(1.0);
+        let w = (320.0 * scale) as i32;
+        let x = size.width as i32 - w - 24;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x.max(0), 48));
+    }
+    Ok(())
+}
+
+fn show_widget(handle: &tauri::AppHandle) {
+    if let Some(win) = handle.get_webview_window(WIDGET_LABEL) {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+#[tauri::command]
+fn open_widget(app: tauri::AppHandle) {
+    show_widget(&app);
+}
+
+#[tauri::command]
+fn hide_widget(app: tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window(WIDGET_LABEL) {
+        let _ = win.hide();
+    }
+}
+
+/// Grow the widget when the notes area opens, shrink it back when it closes — the window
+/// is chromeless, so its size *is* the layout.
+#[tauri::command]
+fn resize_widget(app: tauri::AppHandle, expanded: bool) {
+    if let Some(win) = app.get_webview_window(WIDGET_LABEL) {
+        let height = if expanded { 220.0 } else { 64.0 };
+        let _ = win.set_size(tauri::LogicalSize::new(320.0, height));
+    }
+}
+
+/// True when a known meeting app is *in a call*, not merely open.
+///
+/// Best-effort and process-based: Zoom spawns `CptHost` only while in a meeting, and the
+/// desktop Teams/Webex/Meet(Chrome) helpers are harder to tell apart from an idle app, so
+/// this errs toward Zoom's reliable signal plus the meeting apps being frontmost. Browser
+/// meetings (Meet/Zoom web) aren't caught yet — the widget is also openable by hand.
+fn meeting_in_progress() -> bool {
+    let out = match Command::new("pgrep").arg("-l").arg("-f").arg("CptHost|zoom.us/.*Meeting").output() {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    !out.stdout.is_empty()
+}
+
+/// Poll for a meeting and surface the widget when one starts. Never hides it while
+/// recording; hides it when the meeting ends and we're idle, so it doesn't linger.
+fn start_meeting_watch(handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let mut was_in_meeting = false;
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+            let in_meeting = meeting_in_progress();
+            let recording = read_status(&handle.state::<Recording>()).recording;
+
+            if in_meeting && !was_in_meeting {
+                show_widget(&handle); // a meeting just started
+            } else if !in_meeting && was_in_meeting && !recording {
+                if let Some(win) = handle.get_webview_window(WIDGET_LABEL) {
+                    let _ = win.hide();
+                }
+            }
+            was_in_meeting = in_meeting;
+        }
+    });
 }
 
 fn cleanup(handle: &tauri::AppHandle) {
@@ -760,6 +867,13 @@ fn main() {
 
             ensure_screen_recording();
             start_menu_bar_indicator(app.handle().clone())?;
+
+            // The floating recorder: created hidden, surfaced when a meeting is detected
+            // (or from the menu bar / the panel). Non-fatal if it can't be built.
+            if let Err(e) = build_widget(app.handle()) {
+                eprintln!("could not create the recorder widget: {e}");
+            }
+            start_meeting_watch(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -767,7 +881,10 @@ fn main() {
             stop_recording,
             is_recording,
             capture_status,
-            list_microphones
+            list_microphones,
+            open_widget,
+            hide_widget,
+            resize_widget
         ])
         .build(tauri::generate_context!())
         .expect("error while building SumMeet");

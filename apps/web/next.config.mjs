@@ -15,6 +15,19 @@ const nextConfig = {
   // and nothing left orphaned holding a port. `next dev` is unaffected.
   output: "export",
   images: { unoptimized: true },
+
+  // @summeet/core is authored with NodeNext-style explicit `.js` import extensions
+  // (schemas.ts → `./sections.js`). tsc and esbuild resolve those to the `.ts` source;
+  // webpack doesn't unless told. Without this, the first web *value* import that pulls
+  // core's internal graph (isMine, from schemas.ts) fails with "Can't resolve
+  // './sections.js'".
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      ".js": [".ts", ".tsx", ".js"],
+      ...config.resolve.extensionAlias,
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

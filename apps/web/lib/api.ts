@@ -54,6 +54,7 @@ export interface MeetingDetail {
     error: string | null;
     createdAt: string;
     updatedAt: string;
+    notes: string;
   };
   transcript: {
     fullText: string;
@@ -202,6 +203,14 @@ export function retryMeeting(id: string): Promise<CreateResult> {
   return fetch(`${API_BASE}/api/meetings/${id}/retry`, { method: "POST" }).then(
     json<CreateResult>,
   );
+}
+
+export function saveMeetingNotes(id: string, notes: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ notes }),
+  }).then(json<{ ok: true }>);
 }
 
 export function renameMeeting(id: string, title: string): Promise<{ ok: true }> {
