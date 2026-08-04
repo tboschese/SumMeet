@@ -18,12 +18,15 @@ ROOT="$HERE/../.."
 APP="$HERE/build/SumMeet.app"
 PROFILE="${1:-debug}"
 
-# Unlock the login keychain up front. It is "no-timeout" (no idle auto-lock), but macOS
-# still locks it on sleep — so the first build after the Mac wakes hit a locked keychain
-# and codesign failed with errSecInternalComponent, every time. Unlocking here holds for
-# the whole build; if it's already unlocked this is a silent no-op. Prompts once (GUI)
-# only when actually locked.
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "SumMeet Dev"; then
+# Unlock the signing keychain up front, so a keychain locked by sleep doesn't fail the
+# build with errSecInternalComponent. If the dedicated signing keychain exists (from
+# setup-signing.sh) we unlock *that* non-interactively with its known password — the
+# permanent fix, no login keychain and no prompt ever. Otherwise fall back to the login
+# keychain (unlocks if already open, prompts once via GUI if truly locked).
+DEDICATED_KEYCHAIN="$HOME/Library/Keychains/summeet-signing.keychain-db"
+if [ -f "$DEDICATED_KEYCHAIN" ]; then
+  security unlock-keychain -p "summeet-local-signing" "$DEDICATED_KEYCHAIN" 2>/dev/null || true
+elif security find-identity -v -p codesigning 2>/dev/null | grep -q "SumMeet Dev"; then
   security unlock-keychain "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
 fi
 

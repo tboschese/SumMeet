@@ -11,11 +11,44 @@ import { isNativeShell, nativeRecorder, widgetWindow, type CaptureStatus } from 
 
 // Window sizes per state (logical px); the chromeless window *is* the layout.
 const SIZE = {
-  button: { w: 64, h: 64 },
-  suggest: { w: 240, h: 64 },
-  bar: { w: 320, h: 64 },
-  notes: { w: 320, h: 220 },
+  button: { w: 150, h: 44 },
+  suggest: { w: 250, h: 48 },
+  bar: { w: 330, h: 64 },
+  notes: { w: 330, h: 220 },
 };
+
+/** A drag handle (Tauri moves the window when you drag a drag-region element). Buttons
+ * can't be drag regions or their clicks break, so the grip is a separate dots handle. */
+function Grip() {
+  return (
+    <span
+      data-tauri-drag-region
+      className="flex h-full cursor-grab items-center pl-2 pr-1 text-ink-soft/30"
+      title="Drag"
+    >
+      <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden>
+        <circle cx="2" cy="3" r="1.3" /><circle cx="8" cy="3" r="1.3" />
+        <circle cx="2" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" />
+        <circle cx="2" cy="13" r="1.3" /><circle cx="8" cy="13" r="1.3" />
+      </svg>
+    </span>
+  );
+}
+
+function CloseX({ onClose }: { onClose: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClose}
+      title="Close"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-ink-soft/40 hover:bg-black/5 hover:text-ink-soft"
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+        <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
 
 function width(rms: number): number {
   if (rms <= 0) return 0;
@@ -89,19 +122,21 @@ export default function WidgetPage() {
     void widgetWindow.resize(s.w, s.h);
   }, [recording, notesOpen, suggest]);
 
-  // Idle, no meeting detected: just the round record button.
+  // Idle, no meeting detected: a compact pill — drag grip, a small Record button, close.
   if (!recording && !suggest) {
     return (
-      <main className="flex h-screen w-screen items-center justify-center bg-transparent">
+      <main className="flex h-screen w-screen items-center rounded-full border border-black/5 bg-white/95 pr-2 shadow-md backdrop-blur">
+        <Grip />
         <button
           type="button"
           onClick={start}
+          className="flex h-8 flex-1 items-center gap-1.5 rounded-full px-2 text-sm font-medium text-ink hover:bg-brand-tint"
           title="Record"
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-lg hover:bg-red-700"
-          data-tauri-drag-region
         >
-          <span className="h-4 w-4 rounded-full bg-white" />
+          <span className="h-2.5 w-2.5 rounded-full bg-red-600" />
+          Record
         </button>
+        <CloseX onClose={() => widgetWindow.hide()} />
       </main>
     );
   }
@@ -109,32 +144,29 @@ export default function WidgetPage() {
   // Meeting detected, not yet recording: suggest starting.
   if (!recording && suggest) {
     return (
-      <main className="flex h-screen w-screen items-center gap-2 rounded-2xl bg-white/95 px-3 shadow-lg" data-tauri-drag-region>
+      <main className="flex h-screen w-screen items-center rounded-full border border-black/5 bg-white/95 pr-2 shadow-md backdrop-blur">
+        <Grip />
         <button
           type="button"
           onClick={start}
-          className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700"
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700"
         >
           <span className="h-2.5 w-2.5 rounded-full bg-white" />
           Record
         </button>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-soft/80">Meeting detected</span>
-        <button
-          type="button"
-          onClick={() => widgetWindow.hide()}
-          className="shrink-0 px-1 text-ink-soft/40 hover:text-ink-soft"
-          title="Dismiss"
-        >
-          ✕
-        </button>
+        <span className="min-w-0 flex-1 truncate px-2 text-xs text-ink-soft/80">
+          Meeting detected
+        </span>
+        <CloseX onClose={() => widgetWindow.hide()} />
       </main>
     );
   }
 
   // Recording: controls + live meters, with a notes area.
   return (
-    <main className="flex h-screen w-screen flex-col rounded-2xl bg-white/95 shadow-lg">
-      <div className="flex items-center gap-2 px-3 py-2" data-tauri-drag-region>
+    <main className="flex h-screen w-screen flex-col rounded-2xl border border-black/5 bg-white/95 shadow-lg">
+      <div className="flex items-center gap-2 py-2 pr-2">
+        <Grip />
         <button
           type="button"
           onClick={stop}
