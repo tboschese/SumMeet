@@ -8,6 +8,7 @@ import { buildContext } from "./context.js";
 import { registerFolderRoutes } from "./routes/folders.js";
 import { registerAskRoutes } from "./routes/ask.js";
 import { registerInsightRoutes } from "./routes/insights.js";
+import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMeetingRoutes } from "./routes/meetings.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { startWorker } from "./worker.js";
@@ -34,6 +35,7 @@ export async function buildServer() {
   registerFolderRoutes(app);
   registerInsightRoutes(app);
   registerAskRoutes(app, ctx);
+  registerTemplateRoutes(app);
   registerSettingsRoutes(app);
 
   return app;

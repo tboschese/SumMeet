@@ -137,6 +137,62 @@ export function trashCount(): Promise<{ count: number }> {
   );
 }
 
+import type { SectionKey } from "@summeet/core/sections";
+
+export interface Template {
+  id: string;
+  name: string;
+  sections: SectionKey[];
+  isDefault: boolean;
+  builtin: boolean;
+}
+
+export function listTemplates(): Promise<{ templates: Template[] }> {
+  return fetch(`${API_BASE}/api/templates`, { cache: "no-store" }).then(
+    json<{ templates: Template[] }>,
+  );
+}
+
+export function createTemplate(name: string, sections: SectionKey[]): Promise<Template> {
+  return fetch(`${API_BASE}/api/templates`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, sections }),
+  }).then(json<Template>);
+}
+
+export function updateTemplate(
+  id: string,
+  patch: { name?: string; sections?: SectionKey[] },
+): Promise<Template> {
+  return fetch(`${API_BASE}/api/templates/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  }).then(json<Template>);
+}
+
+export function setDefaultTemplate(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/templates/${id}/default`, { method: "POST" }).then(
+    json<{ ok: true }>,
+  );
+}
+
+export function deleteTemplate(id: string): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/templates/${id}`, { method: "DELETE" }).then(
+    json<{ ok: true }>,
+  );
+}
+
+/** Apply a set of sections to a meeting and re-run the summary. */
+export function applyMeetingSections(id: string, sections: SectionKey[]): Promise<{ ok: true }> {
+  return fetch(`${API_BASE}/api/meetings/${id}/sections`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sections }),
+  }).then(json<{ ok: true }>);
+}
+
 export interface Folder {
   id: string;
   name: string;

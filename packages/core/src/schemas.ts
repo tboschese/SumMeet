@@ -230,3 +230,16 @@ export const EnhancedNotesSchema = z.object({
   notes: z.array(EnhancedNoteSchema).default([]),
 });
 export type EnhancedNotes = z.infer<typeof EnhancedNotesSchema>;
+
+// ── Meeting templates (named section presets) ────────────────────────────────
+import { SectionSchema as _SectionSchema } from "./sections.js";
+export const TemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sections: z.array(_SectionSchema),
+  isDefault: z.boolean(),
+  builtin: z.boolean(),
+});
+export type Template = z.infer<typeof TemplateSchema>;
+
+export const TemplateNameSchema = z.string().trim().min(1).max(40);

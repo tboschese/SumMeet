@@ -79,3 +79,37 @@ export function generatedSections(sections: SectionKey[]): SectionKey[] {
   }
   return [...keys];
 }
+
+// ── Templates: named section presets per meeting type ──
+// A template is just a named, ordered selection of the sections above. Built-ins seed
+// the library; the user can add their own. Choosing one for a meeting drives which
+// sections the extraction produces — cheaper too, since unrequested sections aren't
+// described in the prompt or generated (SPEC A5).
+export interface TemplatePreset {
+  name: string;
+  sections: SectionKey[];
+}
+
+export const BUILTIN_TEMPLATES: TemplatePreset[] = [
+  { name: "General", sections: DEFAULT_SECTIONS },
+  {
+    name: "1:1",
+    sections: ["tldr", "myCommitments", "actionItems", "openQuestions", "nextSteps"],
+  },
+  {
+    name: "Sales call",
+    sections: ["tldr", "keyPoints", "decisions", "actionItems", "risks", "nextSteps", "metrics"],
+  },
+  {
+    name: "Standup",
+    sections: ["myCommitments", "actionItems", "nextSteps"],
+  },
+  {
+    name: "Interview",
+    sections: ["tldr", "executiveSummary", "keyPoints", "topics"],
+  },
+  {
+    name: "Retro",
+    sections: ["tldr", "keyPoints", "decisions", "risks", "actionItems"],
+  },
+];

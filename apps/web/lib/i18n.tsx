@@ -241,6 +241,25 @@ const en = {
   "settings.sections.keepOne": "Keep at least one section",
   "settings.sections.remove": "Remove",
 
+  "settings.templates.title": "Templates",
+  "settings.templates.hint":
+    "Named recipes of summary sections, per meeting type. New recordings use the one marked default; you can also pick a template when you start or re-run a summary.",
+  "settings.templates.default": "default",
+  "settings.templates.builtin": "built-in",
+  "settings.templates.setDefault": "Set as default",
+  "settings.templates.isDefault": "Default recording template",
+  "settings.templates.new": "New template",
+  "settings.templates.newName": "My template",
+  "settings.templates.duplicate": "Duplicate to edit",
+  "settings.templates.copySuffix": "copy",
+  "settings.templates.nameLabel": "Name",
+  "settings.templates.builtinNote": "Built-in templates are read-only. Duplicate one to make your own.",
+  "settings.templates.delete": "Delete template",
+  "settings.templates.deleteConfirm": "Delete this template? Recordings already made keep their sections.",
+  "detail.template.button": "Summarize as",
+  "detail.template.menuTitle": "Re-run the summary with a template's sections",
+  "detail.template.applied": "Re-running…",
+
   "settings.key.title": "Cloud API key (Groq)",
   "settings.key.hint":
     "Needed only for the cloud engine. Stored server-side and never sent back to the browser. Falls back to GROQ_API_KEY in .env when unset.",
@@ -493,6 +512,25 @@ const ptBR: Record<TKey, string> = {
   "settings.sections.dragTitle": "Arraste para reordenar",
   "settings.sections.keepOne": "Mantenha ao menos uma seção",
   "settings.sections.remove": "Remover",
+
+  "settings.templates.title": "Templates",
+  "settings.templates.hint":
+    "Receitas nomeadas de seções do resumo, por tipo de reunião. Novas gravações usam a marcada como padrão; você também pode escolher um template ao iniciar ou refazer um resumo.",
+  "settings.templates.default": "padrão",
+  "settings.templates.builtin": "nativo",
+  "settings.templates.setDefault": "Definir como padrão",
+  "settings.templates.isDefault": "Template padrão das gravações",
+  "settings.templates.new": "Novo template",
+  "settings.templates.newName": "Meu template",
+  "settings.templates.duplicate": "Duplicar para editar",
+  "settings.templates.copySuffix": "cópia",
+  "settings.templates.nameLabel": "Nome",
+  "settings.templates.builtinNote": "Templates nativos são somente leitura. Duplique um para criar o seu.",
+  "settings.templates.delete": "Excluir template",
+  "settings.templates.deleteConfirm": "Excluir este template? Gravações já feitas mantêm suas seções.",
+  "detail.template.button": "Resumir como",
+  "detail.template.menuTitle": "Refazer o resumo com as seções de um template",
+  "detail.template.applied": "Refazendo…",
 
   "settings.key.title": "Chave de API da nuvem (Groq)",
   "settings.key.hint":

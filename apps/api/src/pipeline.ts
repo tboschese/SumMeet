@@ -15,6 +15,8 @@ import {
 } from "@summeet/core";
 import type { PipelineContext } from "./context.js";
 import { db } from "./db.js";
+import { SectionSchema } from "@summeet/core";
+import { z } from "zod";
 import {
   getSecrets,
   getSettings,
@@ -23,6 +25,15 @@ import {
   sections,
   transcriptionHint,
 } from "./settings.js";
+
+/** This meeting's own sections (from its template), else the global default. */
+function meetingSections(rawSections: string, settings: Parameters<typeof sections>[0]): ReturnType<typeof sections> {
+  if (rawSections) {
+    const parsed = z.array(SectionSchema).safeParse(JSON.parse(rawSections || "[]"));
+    if (parsed.success && parsed.data.length) return parsed.data;
+  }
+  return sections(settings);
+}
 
 /**
  * Delete the recording once the transcript exists — the product is the insights
@@ -75,7 +86,7 @@ export async function extractAndPersist(
     outputLanguage: outputLanguage(settings),
     glossary: glossary(settings),
     speakerLabelled: labelled,
-    sections: sections(settings),
+    sections: meetingSections(meeting.sections, settings),
     meetingDate: meeting.createdAt,
   });
   const data = stringifyInsights(insights);

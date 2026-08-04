@@ -15,7 +15,7 @@ import {
   toUpdate,
   type LocalStatus,
 } from "@/lib/api";
-import { SectionPicker } from "@/app/components/SectionPicker";
+import { TemplateManager } from "@/app/components/TemplateManager";
 import { UI_LANGUAGES, useI18n, useT } from "@/lib/i18n";
 
 const selectCls =
@@ -275,16 +275,13 @@ export default function SettingsPage() {
             </Field>
           </section>
 
-          {/* ── Summary shape ───────────────────────────────────────────── */}
+          {/* ── Templates (per meeting type) ────────────────────────────── */}
           <section className="space-y-3 rounded-lg border border-brand-light/60 bg-white p-6">
             <div>
-              <h2 className="text-sm font-semibold text-ink">{t("settings.sections.title")}</h2>
-              <p className="mt-0.5 text-xs text-ink-soft/70">{t("settings.sections.hint")}</p>
+              <h2 className="text-sm font-semibold text-ink">{t("settings.templates.title")}</h2>
+              <p className="mt-0.5 text-xs text-ink-soft/70">{t("settings.templates.hint")}</p>
             </div>
-            <SectionPicker
-              selected={settings.summarySections}
-              onChange={(next) => update({ ...settings, summarySections: next })}
-            />
+            <TemplateManager />
           </section>
 
           {/* ── Cloud API key ───────────────────────────────────────────── */}

@@ -62,6 +62,7 @@ model Meeting {
   error       String? // failure reason when status = FAILED
   notes       String  @default("") // notes you type during the meeting (the widget)
   enhancedNotes String @default("") // JSON EnhancedNotes: your notes expanded from the transcript
+  sections    String  @default("") // JSON SectionKey[] for THIS meeting (from its template); "" = use the default
   transcript  Transcript?
   insights    Insights[]
   createdAt   DateTime    @default(now())
@@ -110,4 +111,15 @@ model AskLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// Named section presets per meeting type. One is the default, applied to
+// new recordings; built-ins are seeded and can't be deleted.
+model Template {
+  id        String   @id @default(cuid())
+  name      String
+  sections  String   // JSON array of SectionKey, in order
+  isDefault Boolean  @default(false)
+  builtin   Boolean  @default(false)
+  createdAt DateTime @default(now())
 }

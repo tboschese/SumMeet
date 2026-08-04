@@ -10,6 +10,7 @@ import type { MeetingInsights } from "@summeet/core/schemas";
 import { DEFAULT_SECTIONS, type SectionKey } from "@summeet/core/sections";
 import {
   activateInsightVersion,
+  applyMeetingSections,
   enhanceNotes as enhanceMeetingNotes,
   getMeeting,
   getSettings,
@@ -19,8 +20,10 @@ import {
   retryMeeting,
   trashMeeting,
   type MeetingDetail,
+  type Template,
 } from "@/lib/api";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
+import { TemplateMenu } from "@/app/components/TemplateMenu";
 import { PromptDialog } from "@/app/components/PromptDialog";
 import { InsightSections, isMine } from "@/app/components/InsightSections";
 import { useT, type TFunction } from "@/lib/i18n";
@@ -293,6 +296,23 @@ function MeetingDetail() {
     }
   }, [id, refresh]);
 
+  // Re-run the summary with a template's sections. The old version is kept (the
+  // pipeline versions insights), so switching recipes is safe to undo.
+  const onApplyTemplate = useCallback(
+    async (tpl: Template) => {
+      setReextracting(true);
+      try {
+        await applyMeetingSections(id, tpl.sections);
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("detail.reextractFailed"));
+      } finally {
+        setReextracting(false);
+      }
+    },
+    [id, refresh, t],
+  );
+
   // Roll back to an earlier extraction. The previous version isn't discarded, so this
   // is reversible in both directions.
   const onSelectVersion = useCallback(
@@ -388,6 +408,13 @@ function MeetingDetail() {
               >
                 {reextracting ? t("detail.reextracting") : t("detail.reextract")}
               </button>
+              <TemplateMenu
+                label={reextracting ? t("detail.template.applied") : t("detail.template.button")}
+                title={t("detail.template.menuTitle")}
+                disabled={reextracting}
+                onPick={onApplyTemplate}
+                className={toolBtn}
+              />
             </>
           )}
           <button

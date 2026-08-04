@@ -9,8 +9,10 @@ import {
   MeetingQuerySchema,
   parseInsights,
   parseSegments,
+  SectionSchema,
   SUMMEET_STEREO_LAYOUT,
 } from "@summeet/core";
+import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
@@ -18,6 +20,7 @@ import { db } from "../db.js";
 import type { Queue } from "../queue.js";
 import { extractAndPersist } from "../pipeline.js";
 import { getSecrets, getSettings } from "../settings.js";
+import { defaultTemplateSections } from "./templates.js";
 
 function defaultTitle(filename?: string): string {
   if (filename) {
@@ -40,6 +43,7 @@ export function registerMeetingRoutes(
     let contentType = "audio/webm";
     // Only our own recorders may claim the stereo layout; a plain upload can't.
     let channelLayout: string | null = null;
+    let uploadedSections: string[] | undefined; // template sections chosen for this upload
 
     let tooLarge = false;
     try {
@@ -61,6 +65,9 @@ export function registerMeetingRoutes(
         } else if (part.type === "field" && part.fieldname === "channelLayout") {
           const claimed = String(part.value);
           channelLayout = isSummeetStereoLayout(claimed) ? SUMMEET_STEREO_LAYOUT : null;
+        } else if (part.type === "field" && part.fieldname === "sections") {
+          const parsed = z.array(SectionSchema).safeParse(JSON.parse(String(part.value)));
+          if (parsed.success && parsed.data.length) uploadedSections = parsed.data;
         }
       }
     } catch (err) {
@@ -77,11 +84,21 @@ export function registerMeetingRoutes(
         .send({ error: "missing 'audio' file part (or it was empty)" });
     }
 
+    // Which sections this meeting's summary will have: the template picked in the upload
+    // (browser path), else the user's default template. Native recordings send none, so
+    // they get the default — which is the whole point of a default template.
+    let meetingSections = uploadedSections;
+    if (!meetingSections) {
+      const def = await defaultTemplateSections();
+      meetingSections = def.length ? def : undefined;
+    }
+
     const meeting = await db.meeting.create({
       data: {
         title: title?.trim() || defaultTitle(filename),
         status: "UPLOADED",
         channelLayout,
+        sections: meetingSections ? JSON.stringify(meetingSections) : "",
       },
     });
     // Keep the real extension: the browser sends .webm, the desktop recorder .ogg.
@@ -327,6 +344,33 @@ export function registerMeetingRoutes(
         await db.meeting
           .update({ where: { id: meeting.id }, data: { status: "FAILED", error: reason } })
           .catch(() => {});
+        return reply.code(500).send({ error: reason });
+      }
+    },
+  );
+
+  // Apply a template's sections to this meeting and re-run the summary with them — the
+  // detail-page template picker. Persists the sections so a later re-extract keeps them.
+  app.post<{ Params: { id: string }; Body: { sections?: unknown } }>(
+    "/api/meetings/:id/sections",
+    async (request, reply) => {
+      const parsed = z.array(SectionSchema).min(1).safeParse(request.body?.sections);
+      if (!parsed.success) return reply.code(400).send({ error: "pick at least one section" });
+      const meeting = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, transcript: { select: { id: true } } },
+      });
+      if (!meeting) return reply.code(404).send({ error: "meeting not found" });
+      await db.meeting.update({
+        where: { id: meeting.id },
+        data: { sections: JSON.stringify(parsed.data) },
+      });
+      if (!meeting.transcript) return { ok: true, reextracted: false };
+      try {
+        await extractAndPersist(meeting.id, ctx, (m) => request.log.info(m));
+        return { ok: true, reextracted: true };
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
         return reply.code(500).send({ error: reason });
       }
     },
