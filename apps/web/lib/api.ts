@@ -92,6 +92,45 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// ── Cross-meeting aggregates (the "My commitments" dashboard, A12's data) ──
+
+export interface Commitment {
+  meetingId: string;
+  meetingTitle: string;
+  meetingDate: string;
+  task: string;
+  owner: string | null;
+  dueDate: string | null;
+  priority: "high" | "medium" | "low" | null;
+  sourceQuote: string | null;
+}
+
+export interface DecisionRow {
+  meetingId: string;
+  meetingTitle: string;
+  meetingDate: string;
+  decision: string;
+  rationale: string | null;
+  sourceQuote: string | null;
+}
+
+/** Action items across every meeting. `owner="you"` narrows to the recorder's own. */
+export function listCommitments(
+  owner?: string,
+): Promise<{ commitments: Commitment[]; total: number }> {
+  const qs = owner ? `?owner=${encodeURIComponent(owner)}` : "";
+  return fetch(`${API_BASE}/api/insights/commitments${qs}`, { cache: "no-store" }).then(
+    json<{ commitments: Commitment[]; total: number }>,
+  );
+}
+
+/** Decisions across every meeting. */
+export function listDecisions(): Promise<{ decisions: DecisionRow[]; total: number }> {
+  return fetch(`${API_BASE}/api/insights/decisions`, { cache: "no-store" }).then(
+    json<{ decisions: DecisionRow[]; total: number }>,
+  );
+}
+
 export function listMeetings(filters: MeetingFilters = {}): Promise<MeetingList> {
   const params = new URLSearchParams();
   if (filters.page) params.set("page", String(filters.page));

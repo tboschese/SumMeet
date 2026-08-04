@@ -275,6 +275,12 @@ export default function HomePage() {
             {t("ask.link")}
           </Link>
           <Link
+            href="/commitments"
+            className="rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
+          >
+            {t("work.link")}
+          </Link>
+          <Link
             href="/settings"
             className="rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
           >
