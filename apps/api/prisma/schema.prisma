@@ -99,3 +99,14 @@ model Insights {
 
   @@index([meetingId, createdAt])
 }
+
+// Saved questions asked of the meetings (the in-app "Ask"), so past searches persist.
+model AskLog {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  provider  String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

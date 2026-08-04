@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Create a local self-signed code-signing identity so TCC grants survive rebuilds.
+# Create a local self-signed code-signing identity in a *dedicated* keychain so TCC
+# grants survive rebuilds AND signing never needs the login keychain unlocked.
 #
-# Ad-hoc signing keys every permission to the binary's cdhash, which changes on every
-# build — so Screen Recording and the microphone have to be re-approved each time,
-# while System Settings shows a ticked "SumMeet" that no longer matches. Signing with a
-# stable certificate makes the code requirement key on the certificate instead, and the
-# grant sticks. Run this once; bundle.sh picks the identity up automatically.
+# Ad-hoc signing keys every permission to the binary's cdhash, which changes each build,
+# so Screen Recording and the microphone are re-approved every time. A stable certificate
+# fixes that — but if it lives in the login keychain, macOS locks that keychain on sleep
+# and codesign then fails (errSecInternalComponent) until someone unlocks it by hand.
 #
-# The certificate is local and self-signed. It is not Apple-notarised and does nothing
-# for distribution — it exists only so a developer stops re-granting permissions.
+# So the identity lives in its own keychain with a known password. bundle.sh unlocks it
+# non-interactively before signing. The password has no security value: the cert is local,
+# self-signed, not notarised, and does nothing for distribution — it exists only so a
+# developer stops re-granting permissions and re-unlocking keychains. Shipping to other
+# machines still needs a real Apple Developer ID.
 set -euo pipefail
 
 IDENTITY="SumMeet Dev"
-KC="$HOME/Library/Keychains/login.keychain-db"
+KEYCHAIN="$HOME/Library/Keychains/summeet-signing.keychain-db"
+KEYCHAIN_PASSWORD="summeet-local-signing"
 
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
-  echo "✓ '$IDENTITY' already exists — nothing to do"
+if security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "$IDENTITY"; then
+  echo "✓ '$IDENTITY' already in the dedicated keychain — nothing to do"
   exit 0
 fi
 
@@ -41,22 +45,29 @@ openssl req -x509 -newkey rsa:2048 -keyout "$work/key.pem" -out "$work/cert.pem"
 openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" \
   -out "$work/ident.p12" -name "$IDENTITY" -passout pass:summeet >/dev/null 2>&1
 
-echo "→ importing into the login keychain"
-security import "$work/ident.p12" -k "$KC" -P summeet -T /usr/bin/codesign >/dev/null
+echo "→ creating the dedicated signing keychain"
+# Recreate it fresh so re-running is idempotent. Its password is fixed (see the header).
+security delete-keychain "$KEYCHAIN" 2>/dev/null || true
+security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+security set-keychain-settings "$KEYCHAIN"  # no auto-lock timeout
+security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 
-echo "→ trusting it for code signing (macOS will ask for your login password)"
-security add-trusted-cert -r trustRoot -p codeSign -k "$KC" "$work/cert.pem"
+# Add it to the search list so find-identity / codesign see it, without dropping the
+# others.
+existing="$(security list-keychains -d user | sed 's/[[:space:]]*"//g' | sed 's/"//g')"
+security list-keychains -d user -s "$KEYCHAIN" $existing >/dev/null
 
-# Without this, codesign finds the identity but cannot use its private key
-# non-interactively: it prints "errSecInternalComponent" and *still exits 0*, so
-# bundle.sh would silently fall back to an ad-hoc signature and permissions would keep
-# resetting. Key it by the cert label, not an empty keychain password (which fails).
-echo "→ allowing codesign to use the key"
-security set-key-partition-list -S apple-tool:,apple:,codesign: -s -l "$IDENTITY" "$KC" \
-  >/dev/null 2>&1 || true
+echo "→ importing the identity"
+security import "$work/ident.p12" -k "$KEYCHAIN" -P summeet -T /usr/bin/codesign >/dev/null
+security set-key-partition-list -S apple-tool:,apple:,codesign: \
+  -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null 2>&1 || true
 
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
-  echo "✓ '$IDENTITY' is ready. Rebuild with apps/desktop/bundle.sh and grant permissions one last time."
+echo "→ trusting it for code signing (macOS will ask for your login password, once)"
+security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$work/cert.pem"
+
+if security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "$IDENTITY"; then
+  echo "✓ '$IDENTITY' is ready in its own keychain. Rebuild with apps/desktop/bundle.sh —"
+  echo "  it unlocks this keychain itself, so no keychain ever blocks a build again."
 else
   echo "✗ the identity is still not usable for code signing — check the keychain" >&2
   exit 1
