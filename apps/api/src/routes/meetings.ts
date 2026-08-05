@@ -263,7 +263,15 @@ export function registerMeetingRoutes(
       const meetings = await db.meeting.findMany({
         where: { deletedAt: null, ...(from || to ? { createdAt } : {}) },
         orderBy: { createdAt: "asc" },
-        select: { id: true, title: true, status: true, createdAt: true, durationSec: true, notes: true },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          createdAt: true,
+          durationSec: true,
+          folderId: true,
+          notes: true,
+        },
       });
       return {
         meetings: meetings.map(({ notes, ...m }) => ({ ...m, hasNotes: notes.trim().length > 0 })),

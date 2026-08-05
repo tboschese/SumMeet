@@ -18,23 +18,30 @@ import {
   emptyTrash,
   extractPending,
   isProcessing,
+  listCalendar,
   listFolders,
   listMeetings,
   moveMeetingToFolder,
   renameFolder,
   restoreMeeting,
   trashMeeting,
+  type CalendarMeeting,
   type Folder,
   type MeetingList,
 } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { PromptDialog } from "./components/PromptDialog";
-import { MonthCalendar } from "./components/MonthCalendar";
+import { DayAgenda } from "./components/DayAgenda";
+import { MiniCalendar } from "./components/MiniCalendar";
 import { RecordBar } from "./components/RecordBar";
 import { StatusBadge } from "./components/StatusBadge";
 
 const PAGE_SIZE = 15;
+// The agenda/calendar want every live meeting; the window is effectively unbounded (a
+// local history is hundreds of rows of minimal fields, cheap to pull in one call).
+const AGENDA_FROM = new Date(2000, 0, 1).toISOString();
+const AGENDA_TO = new Date(2100, 0, 1).toISOString();
 const STATUSES: MeetingStatus[] = [
   "UPLOADED",
   "TRANSCRIBING",
@@ -80,8 +87,13 @@ export default function HomePage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [trashView, setTrashView] = useState(false);
-  const [view, setView] = useState<"list" | "calendar">("list");
   const [page, setPage] = useState(1);
+  // The Granola-style browse: a compact calendar over an agenda grouped by day. `agenda`
+  // is every live meeting (minimal fields — cheap at local scale); it feeds both. A picked
+  // calendar day narrows the agenda; `daysToShow` caps how many day-groups show at once.
+  const [agenda, setAgenda] = useState<CalendarMeeting[] | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [daysToShow, setDaysToShow] = useState(3);
   const [status, setStatus] = useState<MeetingStatus | "">("");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -111,8 +123,8 @@ export default function HomePage() {
 
   const refresh = useCallback(async () => {
     try {
-      setList(
-        await listMeetings({
+      const [listResult, agendaResult] = await Promise.all([
+        listMeetings({
           page,
           pageSize: PAGE_SIZE,
           q: query || undefined,
@@ -120,7 +132,11 @@ export default function HomePage() {
           folderId: !trashView && folder ? folder : undefined,
           trash: trashView,
         }),
-      );
+        // The calendar + agenda always want the full picture; skip it in the trash.
+        trashView ? Promise.resolve(null) : listCalendar(AGENDA_FROM, AGENDA_TO),
+      ]);
+      setList(listResult);
+      if (agendaResult) setAgenda(agendaResult.meetings);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("home.apiUnreachable"));
@@ -281,6 +297,11 @@ export default function HomePage() {
   }, [refresh]);
 
   const filtering = Boolean(query || status);
+  // The day-grouped agenda is the default browse; a search/status/folder filter switches to
+  // the flat results list (content search is server-side, so it can't run over the agenda's
+  // titles-only dataset), and the trash has its own list.
+  const isFiltering = Boolean(query || status || (folder && folder !== ""));
+  const showAgenda = !trashView && !isFiltering;
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
@@ -352,34 +373,32 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Browse as a list (searchable, filterable) or a month calendar. */}
+      {/* Compact calendar over the day-grouped agenda (the default browse). */}
       {!trashView && (
-        <div className="mt-6 flex w-fit items-center gap-0.5 rounded-md border border-brand-light p-0.5 text-sm">
-          {(["list", "calendar"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={`rounded px-3 py-1 ${
-                view === v ? "bg-brand text-white" : "text-brand hover:bg-brand-tint"
-              }`}
-            >
-              {t(`home.view.${v}`)}
-            </button>
-          ))}
-        </div>
+        <MiniCalendar
+          meetings={agenda ?? []}
+          selected={selectedDay}
+          onSelect={(k) => {
+            // Picking a day is a browse action: drop any active search/filter so the
+            // agenda (not the flat results) is what narrows to that day.
+            setSearch("");
+            setStatus("");
+            setFolder("");
+            setPage(1);
+            setSelectedDay((cur) => (cur === k ? null : k));
+          }}
+        />
       )}
 
-      {view === "calendar" && !trashView ? (
-        <MonthCalendar />
-      ) : (
-        <>
       {/* Search + filters */}
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <input
           type="search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (e.target.value) setSelectedDay(null);
+          }}
           placeholder={t("home.searchPlaceholder")}
           className="min-w-0 flex-1 rounded-md border border-brand-light px-3 py-1.5 text-sm text-ink placeholder:text-ink-soft/40 focus:border-brand focus:outline-none"
         />
@@ -460,6 +479,18 @@ export default function HomePage() {
         </div>
       )}
 
+      {showAgenda ? (
+        <DayAgenda
+          meetings={agenda}
+          folders={folders}
+          selectedDay={selectedDay}
+          onClearDay={() => setSelectedDay(null)}
+          daysToShow={daysToShow}
+          onShowMore={() => setDaysToShow((d) => d + 7)}
+          onTrash={onTrash}
+          onMoveToFolder={onMoveToFolder}
+        />
+      ) : (
       <section className="mt-4">
         {meetings === null && !error ? (
           <p className="text-sm text-ink-soft/50">{t("common.loading")}</p>
@@ -608,7 +639,6 @@ export default function HomePage() {
           </div>
         )}
       </section>
-        </>
       )}
 
       <ConfirmDialog

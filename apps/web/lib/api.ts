@@ -140,6 +140,7 @@ export interface CalendarMeeting {
   status: MeetingStatus;
   createdAt: string;
   durationSec: number | null;
+  folderId: string | null;
   hasNotes: boolean;
 }
 
