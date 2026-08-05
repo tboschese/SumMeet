@@ -463,7 +463,7 @@ can close.
 - [x] "Forgot to share tab audio" is caught and the user is prompted, not left with a silent recording. *Browser path: `TAB_AUDIO_MISSING`. Native path: the recorder refuses a silent mic, and the live meters flag a dead/weak/clipping channel during the recording.*
 - [x] Every Insight object validates against `MeetingInsightsSchema`; invalid model output is repaired, not crashed on. *One repair-retry; never-valid output throws a readable error. Verified with a stub LLM.*
 - [x] Action items/decisions link back to their transcript span. *`sourceQuote` per item; clicking it scrolls to and highlights the segment.*
-- [x] Meeting history persists and is browsable. *Paginated list with search, a status filter, folders (A10) and a trash with restore/undo.*
+- [x] Meeting history persists and is browsable. *Paginated list with full-content search (title, transcript and extracted insights — with a "matched in transcript/summary" tag and a highlighted excerpt), a status filter, folders (A10) and a trash with restore/undo.*
 - [x] Failures surface a human-readable reason and can be retried. *`FAILED` status carries the reason; a Retry button re-runs. Re-extraction keeps prior versions for rollback.*
 - [x] A new dev can clone and run it from the README. *README covers both the desktop app (`setup-signing.sh` → `bundle.sh` → open) and `pnpm dev`; `.env.example` and `/health` verified.*
 - [ ] **The gut check:** on 3–5 of *your own* real meetings, you'd rather read the insights than the transcript. *Only the user can close this — run a handful of real meetings and judge.*
