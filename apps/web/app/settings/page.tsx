@@ -197,7 +197,7 @@ export default function SettingsPage() {
                 onChange={(e) =>
                   update({ ...settings, autoExtract: e.target.checked })
                 }
-                className="mt-0.5 h-4 w-4 accent-[#4F42E0]"
+                className="mt-0.5 h-4 w-4 accent-brand"
               />
               <span>
                 <span className="block text-sm font-medium text-ink">{t("settings.autoExtract.label")}</span>

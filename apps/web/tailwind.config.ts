@@ -1,26 +1,26 @@
 import type { Config } from "tailwindcss";
 
-// Brand palette sampled straight from logo.png:
-//   #4F42E0 indigo (the speech balloon + "Meet"), #0E142E navy (the "Sum"),
-//   #DCDAFA lavender (the little bar chart), #FEFEFE off-white (background).
-// Red/green/amber stay reserved for semantics (recording, failure, success) —
-// mixing brand indigo into those would make status unreadable.
+// Warm palette, matching the app icon (a sunrise-gradient tile with a terracotta mark):
+//   #C2611C amber-orange accent, #241A10 espresso text, #F0D5AC soft amber (borders),
+//   #FDF4E7 cream (subtle backgrounds), #FEFBF4 warm off-white surface.
+// Red is still reserved for recording, green for success — semantics stay legible even
+// though the accent is now warm. Green/red/neutral badges are untouched.
 export default {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#4F42E0",
-          dark: "#3F34C4", // hover / pressed
-          light: "#DCDAFA", // lavender accent, highlights
-          tint: "#EFEEFD", // subtle backgrounds
+          DEFAULT: "#C2611C", // warm amber-orange accent
+          dark: "#A34E13", // hover / pressed
+          light: "#F0D5AC", // soft amber — borders, highlights
+          tint: "#FDF4E7", // warm cream — subtle backgrounds
         },
         ink: {
-          DEFAULT: "#0E142E", // headings, strong text
-          soft: "#3B415C", // body text
+          DEFAULT: "#241A10", // warm espresso — headings, strong text
+          soft: "#5A4A3A", // warm taupe — body text
         },
-        surface: "#FBFBFE",
+        surface: "#FEFBF4", // warm off-white
       },
     },
   },
