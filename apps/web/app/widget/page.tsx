@@ -35,6 +35,16 @@ function Grip() {
   );
 }
 
+/** A small red record indicator with a soft pulse — reads as "ready to record". */
+function RecordDot() {
+  return (
+    <span className="relative flex h-2.5 w-2.5 items-center justify-center">
+      <span className="absolute inline-flex h-2.5 w-2.5 animate-ping rounded-full bg-red-500/40" />
+      <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
+    </span>
+  );
+}
+
 function CloseX({ onClose }: { onClose: () => void }) {
   return (
     <button
@@ -125,15 +135,15 @@ export default function WidgetPage() {
   // Idle, no meeting detected: a compact pill — drag grip, a small Record button, close.
   if (!recording && !suggest) {
     return (
-      <main className="flex h-screen w-screen items-center rounded-full border border-black/5 bg-white/95 pr-2 shadow-md backdrop-blur">
+      <main className="flex h-screen w-screen items-center gap-0.5 rounded-full border border-black/5 bg-white/95 pl-1 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur">
         <Grip />
         <button
           type="button"
           onClick={start}
-          className="flex h-8 flex-1 items-center gap-1.5 rounded-full px-2 text-sm font-medium text-ink hover:bg-brand-tint"
+          className="flex h-8 flex-1 items-center gap-2 rounded-full px-2.5 text-sm font-medium text-ink transition-colors hover:bg-brand-tint"
           title="Record"
         >
-          <span className="h-2.5 w-2.5 rounded-full bg-red-600" />
+          <RecordDot />
           Record
         </button>
         <CloseX onClose={() => widgetWindow.hide()} />
@@ -144,19 +154,19 @@ export default function WidgetPage() {
   // Meeting detected, not yet recording: suggest starting.
   if (!recording && suggest) {
     return (
-      <main className="flex h-screen w-screen items-center rounded-full border border-black/5 bg-white/95 pr-2 shadow-md backdrop-blur">
+      <main className="flex h-screen w-screen items-center gap-1 rounded-full border border-black/5 bg-white/95 pl-1 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur">
         <Grip />
+        <span className="min-w-0 flex-1 truncate px-1 text-xs font-medium text-ink">
+          Meeting detected
+        </span>
         <button
           type="button"
           onClick={start}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700"
+          className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-2.5 text-xs font-medium text-white shadow-sm hover:bg-red-700"
         >
-          <span className="h-2.5 w-2.5 rounded-full bg-white" />
+          <span className="h-2 w-2 rounded-full bg-white" />
           Record
         </button>
-        <span className="min-w-0 flex-1 truncate px-2 text-xs text-ink-soft/80">
-          Meeting detected
-        </span>
         <CloseX onClose={() => widgetWindow.hide()} />
       </main>
     );

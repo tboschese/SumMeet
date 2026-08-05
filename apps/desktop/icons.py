@@ -13,11 +13,35 @@ Two icons, two rules, and they are opposites:
     a white blob, so it is drawn as a stroke.
 """
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 BRAND = (79, 66, 224, 255)  # sampled from logo.png
 WHITE = (255, 255, 255, 255)
 BLACK = (0, 0, 0, 255)
+
+# Warm, soft palette (Granola-ish): a sunrise gradient tile with a cream bubble and a
+# terracotta mark. Warm reads friendlier than the flat brand purple, and the light bubble
+# keeps the transcript/insights mark legible.
+GRAD_TOP = (255, 210, 156)     # warm amber-cream
+GRAD_BOTTOM = (240, 133, 86)   # soft warm orange
+CREAM = (255, 249, 240, 255)   # the bubble
+TERRA = (200, 92, 48, 255)     # the mark inside the bubble
+
+
+def warm_gradient(size, top, bottom):
+    """A smooth top-to-bottom warm gradient, size×size RGB."""
+    col = Image.new("RGB", (1, size))
+    for y in range(size):
+        t = y / (size - 1)
+        col.putpixel(
+            (0, y),
+            (
+                round(top[0] + (bottom[0] - top[0]) * t),
+                round(top[1] + (bottom[1] - top[1]) * t),
+                round(top[2] + (bottom[2] - top[2]) * t),
+            ),
+        )
+    return col.resize((size, size))
 
 
 def bubble(draw, box, radius, tail_x, colour, width=None):
@@ -55,18 +79,37 @@ def lines(draw, x0, y0, unit, colour):
 
 
 def app_icon(size=1024):
-    """Brand-coloured squircle, white mark, transparent margin."""
+    """Warm gradient squircle, a cream speech bubble, a terracotta mark inside it."""
     im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
 
     # Apple's grid: the tile occupies ~82% of the canvas, centred.
     m = size * 0.09
-    d.rounded_rectangle((m, m, size - m, size - m), radius=size * 0.225, fill=BRAND)
+    radius = size * 0.225
 
-    u = size * 0.052
-    lines(d, size * 0.24, size * 0.33, u, WHITE)
-    bars(d, size * 0.55, size * 0.60, u, WHITE)
-    # A tail on the tile would touch the edge; the bubble here *is* the tile.
+    # Fill the squircle with the warm gradient (draw the mask, paste the gradient).
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (m, m, size - m, size - m), radius=radius, fill=255
+    )
+    im.paste(warm_gradient(size, GRAD_TOP, GRAD_BOTTOM).convert("RGBA"), (0, 0), mask)
+
+    # A soft top highlight for depth: a feathered translucent-white ellipse, clipped to
+    # the tile so it can't spill past the rounded corners.
+    hi = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(hi).ellipse(
+        (size * 0.12, -size * 0.35, size * 0.88, size * 0.42), fill=(255, 255, 255, 55)
+    )
+    hi = hi.filter(ImageFilter.GaussianBlur(size * 0.05))
+    hi.putalpha(ImageChops.multiply(hi.getchannel("A"), mask))
+    im.alpha_composite(hi)
+
+    d = ImageDraw.Draw(im)
+
+    # A cream speech bubble, centred, with the three ascending "insight" bars inside it.
+    box = (size * 0.255, size * 0.235, size * 0.745, size * 0.655)
+    bubble(d, box, radius=int(size * 0.10), tail_x=size * 0.315, colour=CREAM)
+    u = size * 0.046
+    bars(d, size * 0.405, size * 0.560, u, TERRA)
     return im
 
 
