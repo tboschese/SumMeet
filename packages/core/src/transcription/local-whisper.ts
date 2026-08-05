@@ -17,9 +17,14 @@ interface WhisperCppJson {
   }[];
 }
 
-function run(cmd: string, args: string[]): Promise<void> {
+// Always give children an explicit, existing working directory. whisper-cli's ggml
+// backend loader calls getcwd() (std::filesystem::current_path) at startup and *throws*
+// if the inherited cwd is gone — which is exactly what happens in the packaged app, whose
+// server can end up with a working directory that was cleaned up. A valid cwd sidesteps
+// the crash without affecting backend discovery (that keys off the binary's own path).
+function run(cmd: string, args: string[], cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args);
+    const child = spawn(cmd, args, { cwd });
     let stderr = "";
     child.stderr.on("data", (d) => (stderr += d.toString()));
     child.on("error", (err) =>
@@ -69,7 +74,7 @@ export class LocalWhisperProvider implements TranscriptionProvider {
         "-y", "-i", input,
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
         wav,
-      ]);
+      ], dir);
 
       const args = [
         "-m", this.modelPath,
@@ -81,7 +86,7 @@ export class LocalWhisperProvider implements TranscriptionProvider {
       if (opts.language) args.push("-l", opts.language);
       // whisper.cpp conditions on an initial prompt — pins names/jargon.
       if (opts.prompt) args.push("--prompt", opts.prompt);
-      await run(this.binary, args);
+      await run(this.binary, args, dir);
 
       const raw = await readFile(`${outBase}.json`, "utf8");
       const data = JSON.parse(raw) as WhisperCppJson;

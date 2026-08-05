@@ -148,14 +148,20 @@ fn packaged_api() -> Option<PathBuf> {
 /// a shipped app has no Prisma CLI to apply migrations with.
 fn spawn_packaged_api(api: &Path, log: Option<std::fs::File>) -> std::io::Result<Child> {
     let data = data_dir().unwrap_or_else(std::env::temp_dir);
+    let _ = std::fs::create_dir_all(&data);
     let db = data.join("summeet.db");
     if !db.exists() {
         let _ = std::fs::copy(api.join("summeet.template.db"), &db);
     }
 
+    // Run from the persistent data dir, not the bundle's api dir: an update (or a dev
+    // rebuild) replaces the bundle while the server runs, deleting its working directory
+    // out from under it. A child like whisper-cli then inherits a dead cwd and its ggml
+    // loader crashes in getcwd(). server.mjs is passed absolutely and all paths come from
+    // env, so cwd only needs to exist.
     let mut cmd = Command::new(api.join("node"));
     cmd.arg(api.join("server.mjs"))
-        .current_dir(api)
+        .current_dir(&data)
         .env("DATABASE_URL", format!("file:{}", db.display()))
         .env("DATA_DIR", &data)
         .env("PATH", augmented_path());
