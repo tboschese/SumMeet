@@ -205,6 +205,21 @@ export default function SettingsPage() {
               </span>
             </label>
 
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-brand-light/60 p-3">
+              <input
+                type="checkbox"
+                checked={settings.echoCancellation}
+                onChange={(e) =>
+                  update({ ...settings, echoCancellation: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 accent-brand"
+              />
+              <span>
+                <span className="block text-sm font-medium text-ink">{t("settings.echo.label")}</span>
+                <span className="mt-0.5 block text-xs text-ink-soft/70">{t("settings.echo.hint")}</span>
+              </span>
+            </label>
+
             <Field
               label={t("settings.engine.extraction")}
               hint={t("settings.engine.extractionHint")}

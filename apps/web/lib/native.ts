@@ -62,8 +62,14 @@ export interface Microphone {
 }
 
 export const nativeRecorder = {
-  start: (title: string, micDeviceId?: string) =>
-    invoke<void>("start_recording", { title, micDeviceId: micDeviceId ?? null }),
+  /** `aec` enables echo cancellation (voice processing) — the mic won't re-capture the
+   * meeting audio on speakers. The recorder falls back to plain capture if it can't. */
+  start: (title: string, micDeviceId?: string, aec?: boolean) =>
+    invoke<void>("start_recording", {
+      title,
+      micDeviceId: micDeviceId ?? null,
+      aec: aec ?? null,
+    }),
   stop: () => invoke<string>("stop_recording"),
   isRecording: () => invoke<boolean>("is_recording"),
   /** Polled while recording, to prove on screen that both sources are alive. */

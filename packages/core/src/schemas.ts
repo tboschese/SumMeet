@@ -48,6 +48,13 @@ export const SettingsSchema = z.object({
   autoExtract: z.boolean(),
   /** Which sections the summary contains, in order (SPEC A5). */
   summarySections: z.array(SectionSchema).min(1),
+  /**
+   * Echo cancellation on the microphone (native capture). When recording through
+   * speakers the mic picks up the meeting audio acoustically; voice processing removes
+   * it. Applies to the default mic; the recorder falls back to plain capture if it can't
+   * enable it, so it never costs the mic.
+   */
+  echoCancellation: z.boolean(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 

@@ -6,7 +6,7 @@
 // notes that attach to the meeting and show alongside the transcript.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { saveMeetingNotes } from "@/lib/api";
+import { getSettings, saveMeetingNotes } from "@/lib/api";
 import { isNativeShell, nativeRecorder, widgetWindow, type CaptureStatus } from "@/lib/native";
 
 // Window sizes per state (logical px); the chromeless window *is* the layout.
@@ -115,7 +115,11 @@ export default function WidgetPage() {
   const start = useCallback(async () => {
     setSuggest(false);
     try {
-      await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`);
+      // Echo cancellation is a user setting (default on); fall back to on if unreadable.
+      const aec = await getSettings()
+        .then((s) => s.echoCancellation)
+        .catch(() => true);
+      await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`, undefined, aec);
       setMode("recording");
     } catch {
       setMode("idle");

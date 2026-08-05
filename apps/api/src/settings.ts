@@ -38,6 +38,7 @@ export async function getSettings(): Promise<Settings> {
     glossary: r.glossary,
     autoExtract: r.autoExtract,
     summarySections: parseSections(r.summarySections),
+    echoCancellation: r.echoCancellation,
   };
 }
 

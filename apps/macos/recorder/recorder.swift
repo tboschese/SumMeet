@@ -299,7 +299,16 @@ func microphoneDevices() -> [(id: String, name: String, isDefault: Bool)] {
     }
 }
 
-final class MicCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+/// A microphone source that writes into a ChannelWriter. Two implementations: the plain
+/// AVCaptureSession capture, and the echo-cancelled one (voice processing). The record
+/// command picks one and can fall back from AEC to plain without losing the mic.
+protocol MicSource: AnyObject {
+    var deviceName: String { get }
+    func start() throws
+    func stop()
+}
+
+final class MicCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, MicSource {
     private let session = AVCaptureSession()
     private let writer: ChannelWriter
     let deviceName: String
@@ -333,6 +342,59 @@ final class MicCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         writer.append(sampleBuffer)
+    }
+}
+
+/// Echo-cancelled microphone capture (the real fix for recording on speakers). Uses the
+/// OS Voice-Processing I/O via AVAudioEngine, which removes the meeting audio the mic
+/// picks up acoustically. AGC is turned off so the per-channel energy the diarizer
+/// compares stays honest; noise suppression stays on. It captures the *default* input —
+/// echo cancellation and arbitrary device selection don't mix cleanly, and the default
+/// mic is the case that matters. Voice processing presents the processed mic on channel 0
+/// (all channels carry the same mono signal), so we forward channel 0 as mono. Any failure
+/// here is caught by the caller, which falls back to plain capture — the mic is never lost.
+final class AECMicCapture: MicSource {
+    private let engine = AVAudioEngine()
+    private let writer: ChannelWriter
+    let deviceName: String
+
+    init?(writer: ChannelWriter) {
+        self.writer = writer
+        do {
+            try engine.inputNode.setVoiceProcessingEnabled(true)
+        } catch {
+            err("  [aec] setVoiceProcessingEnabled failed: \(error)")
+            return nil
+        }
+        engine.inputNode.isVoiceProcessingAGCEnabled = false
+        self.deviceName = "default input (echo-cancelled)"
+    }
+
+    func start() throws {
+        let input = engine.inputNode
+        let inFmt = input.outputFormat(forBus: 0)
+        guard inFmt.sampleRate > 0, inFmt.channelCount >= 1,
+              let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                       sampleRate: inFmt.sampleRate, channels: 1,
+                                       interleaved: false) else {
+            throw NSError(domain: "aec", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "no usable input format"])
+        }
+        input.installTap(onBus: 0, bufferSize: 4096, format: inFmt) { [weak self] buf, _ in
+            guard let self, let src = buf.floatChannelData, buf.frameLength > 0,
+                  let out = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buf.frameLength)
+            else { return }
+            out.frameLength = buf.frameLength
+            memcpy(out.floatChannelData![0], src[0],
+                   Int(buf.frameLength) * MemoryLayout<Float>.size)
+            self.writer.append(out)
+        }
+        try engine.start()
+    }
+
+    func stop() {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
     }
 }
 
@@ -727,9 +789,14 @@ struct Main {
         let apiBase = take("--api")
         let title = take("--title") ?? "Meeting"
         let micDevice = take("--mic-device")
+        var aec = false
+        if let i = args.firstIndex(of: "--aec") {
+            args.remove(at: i)
+            aec = true
+        }
 
         guard let outPath = args.first else {
-            err("usage: recorder <out.wav> [seconds] [--api URL] [--title T] [--mic-device ID]")
+            err("usage: recorder <out.wav> [seconds] [--api URL] [--title T] [--mic-device ID] [--aec]")
             exit(64)
         }
         let outURL = URL(fileURLWithPath: outPath)
@@ -777,14 +844,36 @@ struct Main {
             try stream.addStreamOutput(rec, type: .audio,
                                        sampleHandlerQueue: DispatchQueue(label: "sys"))
 
-            guard let micCapture = MicCapture(writer: rec.mic, deviceID: micDevice) else {
-                err("could not open the microphone through CoreAudio")
-                exit(9)
+            // Pick the mic source. Echo cancellation applies only with the default mic
+            // (device selection and voice processing don't mix cleanly); it can still fall
+            // back to plain capture, so the mic is never lost.
+            func openPlain() -> MicCapture {
+                guard let m = MicCapture(writer: rec.mic, deviceID: micDevice) else {
+                    err("could not open the microphone through CoreAudio")
+                    exit(9)
+                }
+                return m
+            }
+            var micCapture: MicSource
+            if aec, micDevice == nil, let aecMic = AECMicCapture(writer: rec.mic) {
+                micCapture = aecMic
+            } else {
+                micCapture = openPlain()
             }
             err("microphone device: \(micCapture.deviceName)")
 
             try await stream.startCapture()
-            micCapture.start()
+            do {
+                try micCapture.start()
+                if micCapture is AECMicCapture { err("microphone: echo cancellation ON") }
+            } catch {
+                // AEC failed to start: fall back to plain capture rather than lose the mic.
+                err("echo cancellation failed to start (\(error)); using plain capture")
+                micCapture.stop()
+                let plain = openPlain()
+                plain.start()
+                micCapture = plain
+            }
             err("recording… (system -> left, mic -> right)")
 
             // Live meter: the shell polls this to show the user, while recording,

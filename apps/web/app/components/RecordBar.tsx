@@ -8,7 +8,7 @@ import {
   SUMMEET_STEREO_LAYOUT,
 } from "@summeet/core/media";
 import { CaptureMeters } from "./CaptureMeters";
-import { createMeeting } from "@/lib/api";
+import { createMeeting, getSettings } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { isNativeShell, nativeRecorder, type Microphone } from "@/lib/native";
 import { formatElapsed, MeetingRecorder, RecorderError } from "@/lib/recorder";
@@ -71,7 +71,14 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
   const startNative = useCallback(async () => {
     setError(null);
     try {
-      await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`, micId || undefined);
+      const aec = await getSettings()
+        .then((s) => s.echoCancellation)
+        .catch(() => true);
+      await nativeRecorder.start(
+        `Recording ${new Date().toLocaleString()}`,
+        micId || undefined,
+        aec,
+      );
       setMode("recording");
       const startedAt = Date.now();
       setElapsed(0);

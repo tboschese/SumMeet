@@ -427,7 +427,7 @@ fn parse_level(line: &str) -> Option<Levels> {
 
 /// Spawn the recorder; it records until SIGINT, then joins the channels and
 /// uploads. Separate from the Tauri command so it can be tested without a window.
-fn spawn_recorder(title: &str, mic_device_id: Option<&str>) -> Result<Session, String> {
+fn spawn_recorder(title: &str, mic_device_id: Option<&str>, aec: bool) -> Result<Session, String> {
     let bin =
         recorder_path().ok_or("recorder binary not found — run apps/macos/recorder/build.sh")?;
     // .ogg, not .wav: ffmpeg picks the container from the extension, and the recorder
@@ -445,6 +445,12 @@ fn spawn_recorder(title: &str, mic_device_id: Option<&str>) -> Result<Session, S
     // no need to make the caller reason about the difference.
     if let Some(id) = mic_device_id.filter(|s| !s.is_empty()) {
         command.arg("--mic-device").arg(id);
+    }
+    // Echo cancellation (voice processing) so the mic doesn't re-capture the meeting audio
+    // when the user is on speakers. The recorder falls back to plain capture if it can't
+    // enable it, so this can never cost us the mic.
+    if aec {
+        command.arg("--aec");
     }
     let mut child = command
         .env("PATH", augmented_path())
@@ -531,12 +537,13 @@ fn start_recording(
     state: tauri::State<Recording>,
     title: String,
     mic_device_id: Option<String>,
+    aec: Option<bool>,
 ) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     if guard.is_some() {
         return Err("already recording".into());
     }
-    *guard = Some(spawn_recorder(&title, mic_device_id.as_deref())?);
+    *guard = Some(spawn_recorder(&title, mic_device_id.as_deref(), aec.unwrap_or(false))?);
     Ok(())
 }
 
@@ -1081,7 +1088,7 @@ mod tests {
     #[test]
     #[ignore]
     fn records_and_uploads() {
-        let child = spawn_recorder("cargo test recording", None).expect("spawn");
+        let child = spawn_recorder("cargo test recording", None, false).expect("spawn");
         std::thread::sleep(std::time::Duration::from_secs(3));
         let id = finish_recorder(child).expect("finish");
         assert!(!id.is_empty(), "expected a meeting id");

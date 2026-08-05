@@ -239,6 +239,9 @@ const en = {
   "settings.autoExtract.label": "Generate insights automatically",
   "settings.autoExtract.hint":
     "Off = stop after transcription and wait. A cheap local Whisper can then run on every meeting, while the insights engine (cloud, or a heavy local model) runs only when you ask — and you decide per meeting whether that transcript goes to the cloud.",
+  "settings.echo.label": "Cancel microphone echo",
+  "settings.echo.hint":
+    "When you record through speakers, the mic also picks up the meeting audio. Voice processing removes that echo so only your voice is on your channel. Applies to the default mic; falls back to plain capture if it can't be enabled — the mic is never lost.",
 
   "settings.sections.title": "Summary sections",
   "settings.sections.hint":
@@ -547,6 +550,9 @@ const ptBR: Record<TKey, string> = {
   "settings.autoExtract.label": "Gerar insights automaticamente",
   "settings.autoExtract.hint":
     "Desligado = para após a transcrição e espera. Assim um Whisper local barato roda em toda reunião, enquanto o motor de insights (nuvem, ou um modelo local pesado) só roda quando você pedir — e você decide, reunião a reunião, se aquela transcrição vai para a nuvem.",
+  "settings.echo.label": "Cancelar eco do microfone",
+  "settings.echo.hint":
+    "Quando você grava pelos alto-falantes, o microfone também capta o áudio da reunião. O processamento de voz remove esse eco, deixando só a sua voz no seu canal. Vale para o microfone padrão; se não der para ativar, volta à captura simples — o microfone nunca é perdido.",
 
   "settings.sections.title": "Seções do resumo",
   "settings.sections.hint":
