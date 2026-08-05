@@ -30,6 +30,7 @@ import {
 import { useT } from "@/lib/i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { PromptDialog } from "./components/PromptDialog";
+import { MonthCalendar } from "./components/MonthCalendar";
 import { RecordBar } from "./components/RecordBar";
 import { StatusBadge } from "./components/StatusBadge";
 
@@ -79,6 +80,7 @@ export default function HomePage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [trashView, setTrashView] = useState(false);
+  const [view, setView] = useState<"list" | "calendar">("list");
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<MeetingStatus | "">("");
   const [search, setSearch] = useState("");
@@ -350,6 +352,28 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Browse as a list (searchable, filterable) or a month calendar. */}
+      {!trashView && (
+        <div className="mt-6 flex w-fit items-center gap-0.5 rounded-md border border-brand-light p-0.5 text-sm">
+          {(["list", "calendar"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`rounded px-3 py-1 ${
+                view === v ? "bg-brand text-white" : "text-brand hover:bg-brand-tint"
+              }`}
+            >
+              {t(`home.view.${v}`)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view === "calendar" && !trashView ? (
+        <MonthCalendar />
+      ) : (
+        <>
       {/* Search + filters */}
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <input
@@ -584,6 +608,8 @@ export default function HomePage() {
           </div>
         )}
       </section>
+        </>
+      )}
 
       <ConfirmDialog
         open={purging !== null}

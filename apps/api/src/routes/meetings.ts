@@ -249,6 +249,28 @@ export function registerMeetingRoutes(
     return { count: await db.meeting.count({ where: { deletedAt: { not: null } } }) };
   });
 
+  /** Live meetings in a time window, for the home calendar. Unpaginated — a month holds
+   * few enough rows — with just what a day cell needs. `hasNotes` flags the ones you
+   * typed your own notes into. The client passes the window as instants and buckets by
+   * local date, so day boundaries are always the user's, not UTC's. */
+  app.get<{ Querystring: { from?: string; to?: string } }>(
+    "/api/meetings/calendar",
+    async (request) => {
+      const { from, to } = request.query;
+      const createdAt: Prisma.DateTimeFilter = {};
+      if (from) createdAt.gte = new Date(from);
+      if (to) createdAt.lt = new Date(to);
+      const meetings = await db.meeting.findMany({
+        where: { deletedAt: null, ...(from || to ? { createdAt } : {}) },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, title: true, status: true, createdAt: true, durationSec: true, notes: true },
+      });
+      return {
+        meetings: meetings.map(({ notes, ...m }) => ({ ...m, hasNotes: notes.trim().length > 0 })),
+      };
+    },
+  );
+
   /** Restore a meeting from the trash. */
   app.post<{ Params: { id: string } }>(
     "/api/meetings/:id/restore",

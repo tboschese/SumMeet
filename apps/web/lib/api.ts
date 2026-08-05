@@ -134,6 +134,26 @@ export function listDecisions(): Promise<{ decisions: DecisionRow[]; total: numb
   );
 }
 
+export interface CalendarMeeting {
+  id: string;
+  title: string;
+  status: MeetingStatus;
+  createdAt: string;
+  durationSec: number | null;
+  hasNotes: boolean;
+}
+
+/** Live meetings whose createdAt falls in [from, to) — the home calendar's month window. */
+export function listCalendar(
+  from: string,
+  to: string,
+): Promise<{ meetings: CalendarMeeting[] }> {
+  const qs = `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  return fetch(`${API_BASE}/api/meetings/calendar${qs}`, { cache: "no-store" }).then(
+    json<{ meetings: CalendarMeeting[] }>,
+  );
+}
+
 export function listMeetings(filters: MeetingFilters = {}): Promise<MeetingList> {
   const params = new URLSearchParams();
   if (filters.page) params.set("page", String(filters.page));
