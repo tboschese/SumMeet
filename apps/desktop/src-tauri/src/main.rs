@@ -29,6 +29,9 @@ struct Levels {
     mic: f32,
     /// Mic peak this window: near 1.0 means the input is clipping.
     mic_peak: f32,
+    /// Output is the built-in speakers, so the mic is picking up the meeting audio
+    /// acoustically (echo / double-capture). The recorder reports this; the UI warns.
+    on_speakers: bool,
 }
 
 /// What the panel and the menu-bar item render. `stale` means the recorder stopped
@@ -41,6 +44,8 @@ struct CaptureStatus {
     mic_peak: f32,
     elapsed_secs: u64,
     stale: bool,
+    /// Output is the built-in speakers — warn that the mic is capturing the echo.
+    on_speakers: bool,
 }
 
 /// A recorder process plus the thread draining its stdout. We can't just read
@@ -400,6 +405,7 @@ fn parse_level(line: &str) -> Option<Levels> {
     let mut system = None;
     let mut mic = None;
     let mut mic_peak = 0.0;
+    let mut on_speakers = false;
     for field in rest.split_whitespace() {
         let (key, value) = field.split_once('=')?;
         let value: f32 = value.parse().ok()?;
@@ -407,6 +413,7 @@ fn parse_level(line: &str) -> Option<Levels> {
             "sys" => system = Some(value),
             "mic" => mic = Some(value),
             "micpeak" => mic_peak = value,
+            "spk" => on_speakers = value != 0.0,
             _ => {}
         }
     }
@@ -414,6 +421,7 @@ fn parse_level(line: &str) -> Option<Levels> {
         system: system?,
         mic: mic?,
         mic_peak,
+        on_speakers,
     })
 }
 
@@ -593,6 +601,7 @@ fn read_status(recording: &Recording) -> CaptureStatus {
             mic_peak: levels.mic_peak,
             elapsed_secs: session.started.elapsed().as_secs(),
             stale: at.elapsed() > LEVEL_STALE,
+            on_speakers: levels.on_speakers,
         },
         // Recording, but no level has landed yet: the first one is 200 ms out.
         None => CaptureStatus {

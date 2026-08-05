@@ -49,6 +49,9 @@ export interface CaptureStatus {
   elapsed_secs: number;
   /** The recorder stopped reporting levels — it may have died. */
   stale: boolean;
+  /** Output is on the built-in speakers, so the mic is capturing the meeting audio as
+   * echo. Warn the user to switch to headphones. */
+  on_speakers?: boolean;
 }
 
 /** An audio input the OS can capture from. */

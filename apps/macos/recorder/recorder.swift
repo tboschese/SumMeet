@@ -22,10 +22,48 @@
 // the join is exact because the clocks match.
 
 import AVFoundation
+import CoreAudio
 import CoreGraphics
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
+
+/// True when audio output is the **built-in speakers** — the one case where the microphone
+/// picks up the meeting audio acoustically (echo / double-capture). Headphones (jack, USB,
+/// Bluetooth) and anything we can't positively identify as the internal speaker return
+/// false, so we never cry wolf. Read-only CoreAudio; it does not touch the capture path.
+func outputIsBuiltInSpeaker() -> Bool {
+    func fourCC(_ s: String) -> UInt32 {
+        s.utf8.prefix(4).reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+    var addr = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+    var device = AudioDeviceID(0)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(
+        AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &device) == noErr,
+        device != 0 else { return false }
+
+    // Only the built-in device can be the internal speaker; everything else is external.
+    addr.mSelector = kAudioDevicePropertyTransportType
+    var transport = UInt32(0)
+    size = 4
+    guard AudioObjectGetPropertyData(device, &addr, 0, nil, &size, &transport) == noErr,
+        transport == kAudioDeviceTransportTypeBuiltIn else { return false }
+
+    // On the built-in device the output data source separates the speaker ('ispk') from the
+    // headphone jack ('hdpn'). No source info → assume speaker (nothing plugged reported).
+    addr.mSelector = kAudioDevicePropertyDataSource
+    addr.mScope = kAudioObjectPropertyScopeOutput
+    var source = UInt32(0)
+    size = 4
+    guard AudioObjectGetPropertyData(device, &addr, 0, nil, &size, &source) == noErr else {
+        return true
+    }
+    return source == fourCC("ispk")
+}
 
 // MARK: - Channel writer
 
@@ -757,8 +795,9 @@ struct Main {
                     try? await Task.sleep(nanoseconds: 200_000_000)
                     let sys = rec.system.takeLevel()
                     let mic = rec.mic.takeLevel()
-                    out(String(format: "LEVEL sys=%.5f mic=%.5f micpeak=%.5f",
-                               sys.rms, mic.rms, mic.peak))
+                    let spk = outputIsBuiltInSpeaker() ? 1 : 0
+                    out(String(format: "LEVEL sys=%.5f mic=%.5f micpeak=%.5f spk=%d",
+                               sys.rms, mic.rms, mic.peak, spk))
                 }
             }
             defer { meter.cancel() }
