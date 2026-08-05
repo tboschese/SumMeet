@@ -14,24 +14,37 @@ const SIZE = {
   button: { w: 150, h: 44 },
   suggest: { w: 250, h: 48 },
   bar: { w: 330, h: 64 },
+  barWarn: { w: 330, h: 94 }, // room for the "on speakers" echo warning
   notes: { w: 330, h: 220 },
 };
 
-/** A drag handle (Tauri moves the window when you drag a drag-region element). Buttons
- * can't be drag regions or their clicks break, so the grip is a separate dots handle. */
-function Grip() {
+/** The SumMeet app mark (matches the Dock icon): a warm squircle with a cream bubble and
+ * the terracotta insight bars. Decorative — `pointer-events-none` so the mousedown falls
+ * through to the drag region behind it, and grabbing the icon moves the window too. */
+function AppMark({ className = "" }: { className?: string }) {
   return (
-    <span
-      data-tauri-drag-region
-      className="flex h-full cursor-grab items-center pl-2 pr-1 text-ink-soft/30"
-      title="Drag"
+    <svg
+      viewBox="0 0 32 32"
+      width="22"
+      height="22"
+      className={`pointer-events-none shrink-0 ${className}`}
+      aria-hidden
     >
-      <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden>
-        <circle cx="2" cy="3" r="1.3" /><circle cx="8" cy="3" r="1.3" />
-        <circle cx="2" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" />
-        <circle cx="2" cy="13" r="1.3" /><circle cx="8" cy="13" r="1.3" />
-      </svg>
-    </span>
+      <defs>
+        <linearGradient id="sm-mark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FFD29C" />
+          <stop offset="1" stopColor="#F0855A" />
+        </linearGradient>
+      </defs>
+      <rect x="1.5" y="1.5" width="29" height="29" rx="8" fill="url(#sm-mark)" />
+      <rect x="8.5" y="7.5" width="15" height="13" rx="3.5" fill="#FFF9F0" />
+      <path d="M11.5 18.5 l-1 4.2 l4.6 -3 z" fill="#FFF9F0" />
+      <g fill="#C85C30">
+        <rect x="11.8" y="13.5" width="2.2" height="4.5" rx="1.1" />
+        <rect x="15.1" y="11.5" width="2.2" height="6.5" rx="1.1" />
+        <rect x="18.4" y="9.5" width="2.2" height="8.5" rx="1.1" />
+      </g>
+    </svg>
   );
 }
 
@@ -125,22 +138,38 @@ export default function WidgetPage() {
   }, [notes]);
 
   const recording = mode === "recording" || status?.recording;
+  // Output on the built-in speakers → the mic is capturing the meeting audio as echo.
+  const onSpeakers = Boolean(recording && status?.on_speakers);
 
-  // Drive the window size from the state.
+  // Drive the window size from the state (taller when the echo warning shows).
   useEffect(() => {
-    const s = recording ? (notesOpen ? SIZE.notes : SIZE.bar) : suggest ? SIZE.suggest : SIZE.button;
+    const s = recording
+      ? notesOpen
+        ? SIZE.notes
+        : onSpeakers
+          ? SIZE.barWarn
+          : SIZE.bar
+      : suggest
+        ? SIZE.suggest
+        : SIZE.button;
     void widgetWindow.resize(s.w, s.h);
-  }, [recording, notesOpen, suggest]);
+  }, [recording, notesOpen, suggest, onSpeakers]);
 
-  // Idle, no meeting detected: a compact pill — drag grip, a small Record button, close.
+  // Idle, no meeting detected: a compact pill — the app mark, a small Record button, close.
+  // The whole pill is a drag region (data-tauri-drag-region on <main>); decorative bits are
+  // pointer-events-none so the mousedown falls through to it and you can drag from anywhere
+  // but the buttons.
   if (!recording && !suggest) {
     return (
-      <main className="flex h-screen w-screen items-center gap-0.5 rounded-full border border-black/5 bg-white/95 pl-1 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur">
-        <Grip />
+      <main
+        data-tauri-drag-region
+        className="flex h-screen w-screen cursor-grab items-center gap-1 rounded-full border border-black/5 bg-white/95 pl-1.5 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur active:cursor-grabbing"
+      >
+        <AppMark />
         <button
           type="button"
           onClick={start}
-          className="flex h-8 flex-1 items-center gap-2 rounded-full px-2.5 text-sm font-medium text-ink transition-colors hover:bg-brand-tint"
+          className="flex h-8 flex-1 cursor-pointer items-center gap-2 rounded-full px-2.5 text-sm font-medium text-ink transition-colors hover:bg-brand-tint"
           title="Record"
         >
           <RecordDot />
@@ -154,15 +183,18 @@ export default function WidgetPage() {
   // Meeting detected, not yet recording: suggest starting.
   if (!recording && suggest) {
     return (
-      <main className="flex h-screen w-screen items-center gap-1 rounded-full border border-black/5 bg-white/95 pl-1 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur">
-        <Grip />
-        <span className="min-w-0 flex-1 truncate px-1 text-xs font-medium text-ink">
+      <main
+        data-tauri-drag-region
+        className="flex h-screen w-screen cursor-grab items-center gap-1.5 rounded-full border border-black/5 bg-white/95 pl-1.5 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur active:cursor-grabbing"
+      >
+        <AppMark />
+        <span className="pointer-events-none min-w-0 flex-1 truncate text-xs font-medium text-ink">
           Meeting detected
         </span>
         <button
           type="button"
           onClick={start}
-          className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-2.5 text-xs font-medium text-white shadow-sm hover:bg-red-700"
+          className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-red-600 px-2.5 text-xs font-medium text-white shadow-sm hover:bg-red-700"
         >
           <span className="h-2 w-2 rounded-full bg-white" />
           Record
@@ -172,23 +204,27 @@ export default function WidgetPage() {
     );
   }
 
-  // Recording: controls + live meters, with a notes area.
+  // Recording: controls + live meters, with a notes area. The header row is the drag
+  // region (main is column-flex with the textarea below, which must stay interactive).
   return (
     <main className="flex h-screen w-screen flex-col rounded-2xl border border-black/5 bg-white/95 shadow-lg">
-      <div className="flex items-center gap-2 py-2 pr-2">
-        <Grip />
+      <div
+        data-tauri-drag-region
+        className="flex cursor-grab items-center gap-2 py-2 pl-2 pr-2 active:cursor-grabbing"
+      >
+        <AppMark />
         <button
           type="button"
           onClick={stop}
           disabled={mode === "uploading"}
-          className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-ink px-3 text-sm font-medium text-white hover:bg-ink/90 disabled:opacity-60"
+          className="flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-ink px-3 text-sm font-medium text-white hover:bg-ink/90 disabled:opacity-60"
           title="Stop"
         >
           <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
           {mode === "uploading" ? "…" : clock(status?.elapsed_secs ?? 0)}
         </button>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="pointer-events-none flex min-w-0 flex-1 flex-col gap-1">
           <Bar level={status?.system ?? 0} />
           <Bar level={status?.mic ?? 0} clipping={(status?.mic_peak ?? 0) >= 0.98} />
         </div>
@@ -209,6 +245,13 @@ export default function WidgetPage() {
           )}
         </button>
       </div>
+
+      {onSpeakers && (
+        <div className="pointer-events-none mx-2 mb-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800">
+          <span aria-hidden>🔊</span>
+          <span>On speakers — the mic is picking up the meeting audio. Use headphones for a clean recording.</span>
+        </div>
+      )}
 
       {notesOpen && (
         <textarea
