@@ -190,6 +190,10 @@ export const MeetingListItemSchema = z.object({
   createdAt: z.union([z.string(), z.date()]),
   deletedAt: z.union([z.string(), z.date()]).nullable(),
   folderId: z.string().nullable(),
+  // Present only on a content search (`q`): where the hit was and a short excerpt
+  // around it, so the user sees *why* a meeting matched when the title didn't.
+  matchedIn: z.enum(["title", "transcript", "summary"]).nullish(),
+  snippet: z.string().nullish(),
 });
 export type MeetingListItem = z.infer<typeof MeetingListItemSchema>;
 

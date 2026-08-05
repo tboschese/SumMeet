@@ -30,6 +30,52 @@ function defaultTitle(filename?: string): string {
   return `Meeting ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
 }
 
+/** Every string leaf of a parsed JSON value, joined — a searchable, readable blob of
+ * the insights (summary, decisions, quotes…) without the JSON punctuation. */
+function jsonText(value: unknown, out: string[] = []): string[] {
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const v of value) jsonText(v, out);
+  else if (value && typeof value === "object")
+    for (const v of Object.values(value)) jsonText(v, out);
+  return out;
+}
+
+/** A short excerpt of `text` centred on the first case-insensitive hit of `q`. */
+function excerpt(text: string, q: string, before = 40, after = 90): string | null {
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return null;
+  const start = Math.max(0, i - before);
+  const end = Math.min(text.length, i + q.length + after);
+  const body = text.slice(start, end).replace(/\s+/g, " ").trim();
+  return (start > 0 ? "…" : "") + body + (end < text.length ? "…" : "");
+}
+
+/** Where a content-search hit landed and a readable excerpt of it. Title first (no
+ * excerpt — the title is already shown), then the transcript, then the summary. Null
+ * when the row matched only on structural JSON (e.g. a field name), which never needs a
+ * badge. */
+function locateMatch(
+  q: string,
+  title: string,
+  transcript?: string | null,
+  insightsData?: string | null,
+): { matchedIn: "title" | "transcript" | "summary" | null; snippet: string | null } {
+  if (title.toLowerCase().includes(q.toLowerCase())) return { matchedIn: "title", snippet: null };
+  if (transcript) {
+    const s = excerpt(transcript, q);
+    if (s) return { matchedIn: "transcript", snippet: s };
+  }
+  if (insightsData) {
+    try {
+      const s = excerpt(jsonText(JSON.parse(insightsData)).join(" · "), q);
+      if (s) return { matchedIn: "summary", snippet: s };
+    } catch {
+      /* corrupt JSON — no excerpt */
+    }
+  }
+  return { matchedIn: null, snippet: null };
+}
+
 export function registerMeetingRoutes(
   app: FastifyInstance,
   ctx: PipelineContext,
@@ -135,11 +181,25 @@ export function registerMeetingRoutes(
       ...(query.folderId
         ? { folderId: query.folderId === "none" ? null : query.folderId }
         : {}),
-      // SQLite has no case-insensitive `mode`, and titles are short: LIKE is enough,
-      // and Prisma parameterises it, so the user's text can't be a wildcard injection.
-      ...(query.q ? { title: { contains: query.q } } : {}),
+      // Content search: match the title, what was said (transcript) or what was
+      // extracted (the active insights JSON — this also covers a summary written in a
+      // different output language than the transcript). SQLite LIKE is case-insensitive
+      // for ASCII; Prisma parameterises it, so the text can't be a wildcard injection.
+      ...(query.q
+        ? {
+            OR: [
+              { title: { contains: query.q } },
+              { transcript: { fullText: { contains: query.q } } },
+              { insights: { some: { active: true, data: { contains: query.q } } } },
+            ],
+          }
+        : {}),
     };
 
+    // On a search we pull the transcript + active insights of the page's rows to build a
+    // "matched here" excerpt. Only when searching, and only the current page (≤ pageSize),
+    // so a plain listing stays as lean as before.
+    const searching = Boolean(query.q);
     const [meetings, total] = await Promise.all([
       db.meeting.findMany({
         where,
@@ -154,13 +214,29 @@ export function registerMeetingRoutes(
           createdAt: true,
           deletedAt: true,
           folderId: true,
+          ...(searching
+            ? {
+                transcript: { select: { fullText: true } },
+                insights: { where: { active: true }, take: 1, select: { data: true } },
+              }
+            : {}),
         },
       }),
       db.meeting.count({ where }),
     ]);
 
+    const shaped = meetings.map((m) => {
+      if (!searching) return m;
+      const { transcript, insights, ...rest } = m as typeof m & {
+        transcript?: { fullText: string } | null;
+        insights?: { data: string }[];
+      };
+      const hit = locateMatch(query.q!, rest.title, transcript?.fullText, insights?.[0]?.data);
+      return { ...rest, matchedIn: hit.matchedIn, snippet: hit.snippet };
+    });
+
     return {
-      meetings,
+      meetings: shaped,
       total,
       page: query.page,
       pageSize: query.pageSize,

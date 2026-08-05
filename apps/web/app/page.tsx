@@ -50,6 +50,28 @@ function formatDuration(sec: number | null): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+/** Emphasise the searched term wherever it appears in a title or snippet. */
+function Highlight({ text, term }: { text: string; term: string }) {
+  const q = term.trim();
+  if (!q) return <>{text}</>;
+  // Split on the term, case-insensitive, keeping the matched parts.
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === q.toLowerCase() ? (
+          <mark key={i} className="rounded bg-amber-100 text-ink">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 export default function HomePage() {
   const t = useT();
   const [list, setList] = useState<MeetingList | null>(null);
@@ -267,7 +289,7 @@ export default function HomePage() {
           </h1>
           <p className="mt-1 text-sm text-ink-soft/70">{t("home.tagline")}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <Link
             href="/ask"
             className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
@@ -470,11 +492,27 @@ export default function HomePage() {
                       className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-3 hover:bg-brand-tint/60"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-ink">{m.title}</p>
+                        <p className="truncate text-sm font-medium text-ink">
+                          <Highlight text={m.title} term={query} />
+                        </p>
                         <p className="mt-0.5 text-xs text-ink-soft/70">
                           {new Date(m.createdAt).toLocaleString()} ·{" "}
                           {formatDuration(m.durationSec)}
                         </p>
+                        {m.snippet && (
+                          <p className="mt-1 line-clamp-2 text-xs text-ink-soft/60">
+                            {(m.matchedIn === "transcript" || m.matchedIn === "summary") && (
+                              <span className="mr-1.5 whitespace-nowrap rounded bg-brand-tint px-1 py-0.5 text-[10px] font-medium text-brand">
+                                {t(
+                                  m.matchedIn === "transcript"
+                                    ? "home.search.in.transcript"
+                                    : "home.search.in.summary",
+                                )}
+                              </span>
+                            )}
+                            <Highlight text={m.snippet} term={query} />
+                          </p>
+                        )}
                       </div>
                       <StatusBadge status={m.status} />
                     </Link>

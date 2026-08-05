@@ -4,7 +4,7 @@
 // Two axes: which ENGINE runs each stage (cloud Groq vs free/offline local),
 // and which LANGUAGE is used for the transcript and for the insights.
 
-import Link from "next/link";
+import { PageNav } from "@/app/components/PageNav";
 import { useCallback, useEffect, useState } from "react";
 import type { SettingsView } from "@summeet/core/schemas";
 import { AUTO_DETECT, LANGUAGES, MATCH_MEETING } from "@summeet/core/languages";
@@ -119,11 +119,9 @@ export default function SettingsPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-2xl px-6 py-12">
-      <Link href="/" className="text-sm text-ink-soft/70 hover:text-brand">
-        {t("common.backToMeetings")}
-      </Link>
+      <PageNav current="settings" />
 
-      <header className="mb-8 mt-6">
+      <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("settings.title")}</h1>
         <p className="mt-1 text-sm text-ink-soft/70">{t("settings.subtitle")}</p>
       </header>

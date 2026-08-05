@@ -21,6 +21,9 @@ export interface MeetingListItem {
   createdAt: string;
   deletedAt: string | null;
   folderId: string | null;
+  // Set only on a content search: where the hit landed and a short excerpt of it.
+  matchedIn?: "title" | "transcript" | "summary" | null;
+  snippet?: string | null;
 }
 
 /** A page of meetings, plus what the pager needs to render itself. */

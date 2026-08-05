@@ -383,23 +383,12 @@ function MeetingDetail() {
             {meeting.language ? ` · ${meeting.language}` : ""}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <button type="button" onClick={() => setRenaming(true)} className={toolBtn}>
             {t("detail.rename")}
           </button>
           {insights && (
             <>
-              <button type="button" onClick={onCopy} className={toolBtn}>
-                {copied ? t("detail.copied") : t("detail.copyMd")}
-              </button>
-              <button
-                type="button"
-                onClick={onDownload}
-                title={t("detail.saveMdTitle")}
-                className={toolBtn}
-              >
-                {t("detail.saveMd")}
-              </button>
               <button
                 type="button"
                 onClick={onReextract}
@@ -415,6 +404,36 @@ function MeetingDetail() {
                 onPick={onApplyTemplate}
                 className={toolBtn}
               />
+              {/* The two Markdown exports collapse into one menu so the header stays
+                  legible on the narrow panel. */}
+              <details className="relative [&_summary::-webkit-details-marker]:hidden">
+                <summary className={`${toolBtn} cursor-pointer list-none`}>
+                  {t("detail.export")} <span className="text-[10px] opacity-70">▾</span>
+                </summary>
+                <div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border border-brand-light bg-white py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.currentTarget.closest("details")?.removeAttribute("open");
+                      onCopy();
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-ink hover:bg-brand-tint"
+                  >
+                    {copied ? t("detail.copied") : t("detail.copyMd")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.currentTarget.closest("details")?.removeAttribute("open");
+                      onDownload();
+                    }}
+                    title={t("detail.saveMdTitle")}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-ink hover:bg-brand-tint"
+                  >
+                    {t("detail.saveMd")}
+                  </button>
+                </div>
+              </details>
             </>
           )}
           <button

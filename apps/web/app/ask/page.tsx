@@ -4,10 +4,10 @@
 // "what's still open on Citrus" — and the LLM answers over your own decision records. The
 // same MCP data, but inside the app; no external assistant needed.
 
-import Link from "next/link";
 import { useCallback, useState } from "react";
 import { askMeetings } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { PageNav } from "@/app/components/PageNav";
 
 const SUGGESTIONS = [
   "ask.suggest.tasks",
@@ -43,17 +43,10 @@ export default function AskPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
-      <header className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("ask.title")}</h1>
-          <p className="mt-1 text-sm text-ink-soft/70">{t("ask.tagline")}</p>
-        </div>
-        <Link
-          href="/"
-          className="shrink-0 rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
-        >
-          {t("common.backToMeetings")}
-        </Link>
+      <PageNav current="ask" />
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("ask.title")}</h1>
+        <p className="mt-1 text-sm text-ink-soft/70">{t("ask.tagline")}</p>
       </header>
 
       <form

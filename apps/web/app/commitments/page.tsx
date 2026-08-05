@@ -14,6 +14,7 @@ import {
   type DecisionRow,
 } from "@/lib/api";
 import { useT, type TFunction } from "@/lib/i18n";
+import { PageNav } from "@/app/components/PageNav";
 
 type Bucket = "overdue" | "today" | "week" | "later" | "someday";
 const BUCKET_ORDER: Bucket[] = ["overdue", "today", "week", "later", "someday"];
@@ -109,17 +110,10 @@ export default function CommitmentsPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
-      <header className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("work.title")}</h1>
-          <p className="mt-1 text-sm text-ink-soft/70">{t("work.subtitle")}</p>
-        </div>
-        <Link
-          href="/"
-          className="shrink-0 rounded-md border border-brand-light px-3 py-1.5 text-sm text-brand hover:bg-brand-tint"
-        >
-          {t("common.backToMeetings")}
-        </Link>
+      <PageNav current="commitments" />
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">{t("work.title")}</h1>
+        <p className="mt-1 text-sm text-ink-soft/70">{t("work.subtitle")}</p>
       </header>
 
       {/* Tabs */}
