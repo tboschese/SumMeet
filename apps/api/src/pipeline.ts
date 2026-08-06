@@ -51,6 +51,72 @@ export function cancelPipeline(meetingId: string): void {
 /** Hard cap on a single transcription. A real meeting finishes well inside this; a hang
  * hits it and fails, rather than jamming the queue forever. */
 const TRANSCRIBE_TIMEOUT_MS = 30 * 60_000;
+/** A live chunk is short (tens of seconds), so it should transcribe quickly; cap it low so
+ * a stuck chunk can't hold up the ones behind it. */
+const SEGMENT_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Transcribe one live chunk of a still-recording meeting and append it to the running
+ * transcript, offset onto the meeting timeline (streaming transcription — SPEC A?/A0).
+ * Fail-soft: a bad chunk is logged and dropped, because the full recording uploaded at
+ * stop is the authoritative fallback, so the transcript is never left silently wrong.
+ */
+export async function runSegment(
+  meetingId: string,
+  segmentPath: string,
+  offsetSec: number,
+  ctx: PipelineContext,
+  log?: (msg: string) => void,
+): Promise<void> {
+  try {
+    const meeting = await db.meeting.findUnique({
+      where: { id: meetingId },
+      include: { transcript: true },
+    });
+    if (!meeting || meeting.deletedAt) return; // cancelled or gone while queued
+
+    const settings = await getSettings();
+    const { transcription } = ctx.resolve(settings, await getSecrets());
+
+    const abort = new AbortController();
+    inflight.set(meetingId, abort);
+    const watchdog = setTimeout(() => abort.abort(), SEGMENT_TIMEOUT_MS);
+    let result: Awaited<ReturnType<typeof transcribeFile>>;
+    try {
+      result = await transcribeFile(segmentPath, transcription, {
+        language: transcriptionHint(settings),
+        prompt: glossary(settings),
+        signal: abort.signal,
+      });
+    } finally {
+      clearTimeout(watchdog);
+      inflight.delete(meetingId);
+    }
+
+    // Shift the chunk's segments onto the meeting timeline and merge into the running
+    // transcript, ordered by start. Chunks arrive in order and don't overlap, so a plain
+    // concat + sort is enough.
+    const shifted = result.segments.map((s) => ({
+      ...s,
+      start: s.start + offsetSec,
+      end: s.end + offsetSec,
+    }));
+    const existing = meeting.transcript ? parseSegments(meeting.transcript.segments) : [];
+    const merged = [...existing, ...shifted].sort((a, b) => a.start - b.start);
+    const fullText = merged.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
+
+    await db.transcript.upsert({
+      where: { meetingId },
+      create: { meetingId, fullText, segments: stringifySegments(merged), provider: transcription.id },
+      update: { fullText, segments: stringifySegments(merged) },
+    });
+    log?.(`segment ${meetingId} @${offsetSec}s: +${shifted.length} (${merged.length} total)`);
+  } catch (err) {
+    log?.(`segment ${meetingId} @${offsetSec}s: skipped — ${String(err)}`);
+  } finally {
+    await rm(segmentPath, { force: true }).catch(() => {});
+  }
+}
 
 /**
  * Delete the recording once the transcript exists — the product is the insights

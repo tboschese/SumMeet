@@ -7,11 +7,14 @@
  * extraction over a stored transcript — the audio is deleted as soon as the
  * transcript exists, so anything past that point must use this kind.
  */
-export type JobKind = "full" | "extract";
+export type JobKind = "full" | "extract" | "segment";
 
 export interface Job {
   meetingId: string;
   kind: JobKind;
+  /** Only for "segment": a chunk of a still-recording meeting to transcribe live and
+   * append to the running transcript, at this offset into the meeting. */
+  segment?: { path: string; offsetSec: number };
 }
 
 export class Queue {
@@ -23,8 +26,12 @@ export class Queue {
     private readonly log?: (msg: string, err?: unknown) => void,
   ) {}
 
-  enqueue(meetingId: string, kind: JobKind = "full"): void {
-    this.pending.push({ meetingId, kind });
+  enqueue(
+    meetingId: string,
+    kind: JobKind = "full",
+    segment?: { path: string; offsetSec: number },
+  ): void {
+    this.pending.push({ meetingId, kind, segment });
     void this.drain();
   }
 

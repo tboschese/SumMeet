@@ -1,5 +1,7 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   ACCEPTED_AUDIO_HINT,
   enhanceNotes,
@@ -157,6 +159,66 @@ export function registerMeetingRoutes(
 
     queue.enqueue(meeting.id);
     return reply.code(201).send({ id: meeting.id, status: "UPLOADED" });
+  });
+
+  // ── Streaming transcription (transcribe while recording) ──────────────────────
+  // The native recorder creates the meeting at the *start* of recording, streams short
+  // audio chunks during it (each transcribed live and appended), and uploads the full
+  // recording at the end (POST /api/meetings — the authoritative fallback if live
+  // transcription came up short). This keeps the sacred full-recording path untouched.
+
+  /** Create a meeting at recording start, before any audio exists. */
+  app.post<{ Body: { title?: string; channelLayout?: string } }>(
+    "/api/meetings/start",
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const channelLayout = isSummeetStereoLayout(String(body.channelLayout ?? ""))
+        ? SUMMEET_STEREO_LAYOUT
+        : null;
+      const def = await defaultTemplateSections();
+      const meeting = await db.meeting.create({
+        data: {
+          title: String(body.title ?? "").trim() || defaultTitle(),
+          status: "TRANSCRIBING",
+          channelLayout,
+          sections: def.length ? JSON.stringify(def) : "",
+        },
+      });
+      return reply.code(201).send({ id: meeting.id });
+    },
+  );
+
+  /** One live chunk of a still-recording meeting: transcribe it and append at `offsetSec`. */
+  app.post<{ Params: { id: string } }>(
+    "/api/meetings/:id/segment",
+    async (request, reply) => {
+      const meeting = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, deletedAt: true },
+      });
+      if (!meeting || meeting.deletedAt) return reply.code(404).send({ error: "meeting not found" });
+
+      let audio: Buffer | undefined;
+      let offsetSec = 0;
+      let ext = ".opus";
+      for await (const part of request.parts()) {
+        if (part.type === "file" && part.fieldname === "audio") {
+          ext = part.filename?.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase() ?? ".opus";
+          audio = await part.toBuffer();
+        } else if (part.type === "field" && part.fieldname === "offsetSec") {
+          offsetSec = Number(part.value) || 0;
+        }
+      }
+      if (!audio || audio.byteLength === 0) {
+        return reply.code(400).send({ error: "missing 'audio' chunk" });
+      }
+
+      // The worker reads then deletes this temp file (runSegment's finally).
+      const dir = await mkdtemp(path.join(tmpdir(), "summeet-seg-"));
+      const chunkPath = path.join(dir, `seg${ext}`);
+      await writeFile(chunkPath, audio);
+      queue.enqueue(meeting.id, "segment", { path: chunkPath, offsetSec });
+      return { ok: true };
   });
 
   // List: newest first, paginated and filterable. Returns the page plus the total, so
