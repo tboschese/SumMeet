@@ -18,7 +18,7 @@ import type { FastifyInstance } from "fastify";
 import type { PipelineContext } from "../context.js";
 import { db } from "../db.js";
 import type { Queue } from "../queue.js";
-import { extractAndPersist } from "../pipeline.js";
+import { cancelPipeline, extractAndPersist } from "../pipeline.js";
 import { getSecrets, getSettings } from "../settings.js";
 import { defaultTemplateSections } from "./templates.js";
 
@@ -572,6 +572,11 @@ export function registerMeetingRoutes(
         select: { id: true, audioKey: true },
       });
       if (!meeting) return reply.code(404).send({ error: "meeting not found" });
+
+      // If it's still transcribing, cancel that first: the worker is single-threaded, so a
+      // trashed-but-still-running job would keep blocking every meeting behind it. This
+      // kills the whisper child / aborts the request, freeing the queue at once.
+      cancelPipeline(meeting.id);
 
       if (request.query.permanent !== "true") {
         await db.meeting.update({

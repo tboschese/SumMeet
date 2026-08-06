@@ -83,4 +83,6 @@ export const widgetWindow = {
   resize: (width: number, height: number) =>
     isNativeShell() ? invoke<void>("resize_widget", { width, height }) : Promise.resolve(),
   hide: () => (isNativeShell() ? invoke<void>("hide_widget") : Promise.resolve()),
+  /** Begin dragging the widget window (call on mousedown over the pill). */
+  startDrag: () => (isNativeShell() ? invoke<void>("start_widget_drag") : Promise.resolve()),
 };

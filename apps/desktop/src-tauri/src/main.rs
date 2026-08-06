@@ -797,6 +797,18 @@ fn hide_widget(app: tauri::AppHandle) {
     }
 }
 
+/// Start dragging the widget window. `data-tauri-drag-region` doesn't fire reliably for
+/// this chromeless webview, so the page calls this on mousedown over the pill instead —
+/// window.start_dragging() is the same OS move, just triggered explicitly.
+#[tauri::command]
+fn start_widget_drag(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(WIDGET_LABEL) {
+        win.start_dragging().map_err(|e| e.to_string())
+    } else {
+        Err("widget window not found".into())
+    }
+}
+
 /// Size the chromeless widget to fit its current state (idle = a small button, recording
 /// = the bar, notes = taller), keeping it anchored to the top-right corner so it grows
 /// leftward/down instead of walking off-screen.
@@ -987,7 +999,8 @@ fn main() {
             list_microphones,
             open_widget,
             hide_widget,
-            resize_widget
+            resize_widget,
+            start_widget_drag
         ])
         .build(tauri::generate_context!())
         .expect("error while building SumMeet");

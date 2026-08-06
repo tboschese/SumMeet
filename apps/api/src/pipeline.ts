@@ -36,6 +36,23 @@ function meetingSections(rawSections: string, settings: Parameters<typeof sectio
 }
 
 /**
+ * Transcriptions in flight, keyed by meeting. The worker is single-threaded, so a hung or
+ * runaway transcription blocks every meeting behind it. Two things can abort one: the
+ * watchdog timeout below, and `cancelPipeline` (called when the user trashes a meeting
+ * that's still processing). Aborting kills the whisper child / aborts the HTTP request.
+ */
+const inflight = new Map<string, AbortController>();
+
+/** Cancel a meeting's in-flight transcription, if any — frees the worker immediately. */
+export function cancelPipeline(meetingId: string): void {
+  inflight.get(meetingId)?.abort();
+}
+
+/** Hard cap on a single transcription. A real meeting finishes well inside this; a hang
+ * hits it and fails, rather than jamming the queue forever. */
+const TRANSCRIBE_TIMEOUT_MS = 30 * 60_000;
+
+/**
  * Delete the recording once the transcript exists — the product is the insights
  * + transcript, and nothing sensitive should linger on disk.
  */
@@ -203,11 +220,25 @@ export async function runPipeline(
       );
     }
 
-    const transcript = await transcribeFile(audioPath, transcriber, {
-      language: transcriptionHint(settings),
-      prompt: glossary(settings),
-      balance,
-    });
+    // Guard the transcription: a per-meeting AbortController lets a cancel (trashing a
+    // still-processing meeting) or the watchdog timeout kill the whisper child / abort the
+    // HTTP request, so one stuck job can never block every meeting behind it on the single
+    // in-process worker.
+    const abort = new AbortController();
+    inflight.set(meetingId, abort);
+    const watchdog = setTimeout(() => abort.abort(), TRANSCRIBE_TIMEOUT_MS);
+    let transcript: Awaited<ReturnType<typeof transcribeFile>>;
+    try {
+      transcript = await transcribeFile(audioPath, transcriber, {
+        language: transcriptionHint(settings),
+        prompt: glossary(settings),
+        balance,
+        signal: abort.signal,
+      });
+    } finally {
+      clearTimeout(watchdog);
+      inflight.delete(meetingId);
+    }
 
     // Who spoke, straight from the stereo channels (left = others, right = you).
     // Free: no model, no extra API call — just an ffmpeg energy pass.

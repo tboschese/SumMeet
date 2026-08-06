@@ -52,6 +52,8 @@ export class GroqWhisperProvider implements TranscriptionProvider {
       method: "POST",
       headers: { Authorization: `Bearer ${this.apiKey}` },
       body: form,
+      // A timeout or user-cancel aborts the request instead of hanging the worker.
+      signal: opts.signal,
     });
 
     if (!res.ok) {

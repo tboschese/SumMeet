@@ -5,7 +5,7 @@
 // round button; recording it expands to show the two live channel meters; and it takes
 // notes that attach to the meeting and show alongside the transcript.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { getSettings, saveMeetingNotes } from "@/lib/api";
 import { isNativeShell, nativeRecorder, widgetWindow, type CaptureStatus } from "@/lib/native";
 
@@ -159,6 +159,16 @@ export default function WidgetPage() {
     void widgetWindow.resize(s.w, s.h);
   }, [recording, notesOpen, suggest, onSpeakers]);
 
+  // Drag the window explicitly: data-tauri-drag-region doesn't fire for this chromeless
+  // webview, so start the OS move on mousedown — but never when the press lands on a
+  // control, or its click would turn into a drag.
+  const onDrag = useCallback((e: ReactMouseEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, textarea, select, input, a")) return;
+    e.preventDefault();
+    void widgetWindow.startDrag();
+  }, []);
+
   // Idle, no meeting detected: a compact pill — the app mark, a small Record button, close.
   // The whole pill is a drag region (data-tauri-drag-region on <main>); decorative bits are
   // pointer-events-none so the mousedown falls through to it and you can drag from anywhere
@@ -167,7 +177,8 @@ export default function WidgetPage() {
     return (
       <main
         data-tauri-drag-region
-        className="flex h-screen w-screen cursor-grab items-center gap-1 rounded-full border border-black/5 bg-white/95 pl-1.5 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur active:cursor-grabbing"
+        onMouseDown={onDrag}
+        className="flex h-screen w-screen cursor-grab select-none items-center gap-1.5 rounded-full border border-black/10 bg-white/90 pl-2 pr-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl active:cursor-grabbing"
       >
         <AppMark />
         <button
@@ -189,7 +200,8 @@ export default function WidgetPage() {
     return (
       <main
         data-tauri-drag-region
-        className="flex h-screen w-screen cursor-grab items-center gap-1.5 rounded-full border border-black/5 bg-white/95 pl-1.5 pr-1.5 shadow-lg ring-1 ring-black/5 backdrop-blur active:cursor-grabbing"
+        onMouseDown={onDrag}
+        className="flex h-screen w-screen cursor-grab select-none items-center gap-1.5 rounded-full border border-black/10 bg-white/90 pl-2 pr-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl active:cursor-grabbing"
       >
         <AppMark />
         <span className="pointer-events-none min-w-0 flex-1 truncate text-xs font-medium text-ink">
@@ -211,10 +223,11 @@ export default function WidgetPage() {
   // Recording: controls + live meters, with a notes area. The header row is the drag
   // region (main is column-flex with the textarea below, which must stay interactive).
   return (
-    <main className="flex h-screen w-screen flex-col rounded-2xl border border-black/5 bg-white/95 shadow-lg">
+    <main className="flex h-screen w-screen select-none flex-col rounded-3xl border border-black/10 bg-white/90 shadow-xl ring-1 ring-black/5 backdrop-blur-xl">
       <div
         data-tauri-drag-region
-        className="flex cursor-grab items-center gap-2 py-2 pl-2 pr-2 active:cursor-grabbing"
+        onMouseDown={onDrag}
+        className="flex cursor-grab items-center gap-2 py-2 pl-2.5 pr-2 active:cursor-grabbing"
       >
         <AppMark />
         <button

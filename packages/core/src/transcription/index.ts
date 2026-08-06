@@ -29,6 +29,12 @@ export interface TranscribeOptions {
    * channels carry no such meaning and balancing them would be nonsense.
    */
   balance?: ChannelBalance;
+  /**
+   * Abort the transcription (a timeout, or the user cancelling). Providers must honour
+   * it — kill the whisper.cpp child, abort the HTTP request — so a hung or runaway
+   * transcription can't block the single-threaded worker forever.
+   */
+  signal?: AbortSignal;
 }
 
 export interface TranscriptionProvider {

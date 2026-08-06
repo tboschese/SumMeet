@@ -22,21 +22,32 @@ interface WhisperCppJson {
 // if the inherited cwd is gone — which is exactly what happens in the packaged app, whose
 // server can end up with a working directory that was cleaned up. A valid cwd sidesteps
 // the crash without affecting backend discovery (that keys off the binary's own path).
-function run(cmd: string, args: string[], cwd: string): Promise<void> {
+function run(cmd: string, args: string[], cwd: string, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error(`${cmd} aborted before start`));
     const child = spawn(cmd, args, { cwd });
     let stderr = "";
+    // A timeout (or the user cancelling) kills the child — otherwise a stuck whisper.cpp
+    // run would block the single worker forever and jam every meeting behind it.
+    const onAbort = () => {
+      child.kill("SIGKILL");
+      reject(new Error(`${cmd} aborted`));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const done = () => signal?.removeEventListener("abort", onAbort);
     child.stderr.on("data", (d) => (stderr += d.toString()));
-    child.on("error", (err) =>
+    child.on("error", (err) => {
+      done();
       reject(
         new Error(
           `Failed to run ${cmd} (is it installed and on PATH?): ${err.message}`,
         ),
-      ),
-    );
-    child.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}: ${stderr}`)),
-    );
+      );
+    });
+    child.on("close", (code) => {
+      done();
+      code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}: ${stderr}`));
+    });
   });
 }
 
@@ -74,7 +85,7 @@ export class LocalWhisperProvider implements TranscriptionProvider {
         "-y", "-i", input,
         "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
         wav,
-      ], dir);
+      ], dir, opts.signal);
 
       const args = [
         "-m", this.modelPath,
@@ -86,7 +97,7 @@ export class LocalWhisperProvider implements TranscriptionProvider {
       if (opts.language) args.push("-l", opts.language);
       // whisper.cpp conditions on an initial prompt — pins names/jargon.
       if (opts.prompt) args.push("--prompt", opts.prompt);
-      await run(this.binary, args, dir);
+      await run(this.binary, args, dir, opts.signal);
 
       const raw = await readFile(`${outBase}.json`, "utf8");
       const data = JSON.parse(raw) as WhisperCppJson;
