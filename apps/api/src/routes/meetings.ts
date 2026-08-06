@@ -219,7 +219,51 @@ export function registerMeetingRoutes(
       await writeFile(chunkPath, audio);
       queue.enqueue(meeting.id, "segment", { path: chunkPath, offsetSec });
       return { ok: true };
-  });
+    },
+  );
+
+  /** Recording stopped: attach the full recording and finalize. If live chunks produced a
+   * transcript it's used (fast — just a diarization pass); otherwise the full file is
+   * transcribed, exactly like a plain upload. The full recording is always the fallback. */
+  app.post<{ Params: { id: string } }>(
+    "/api/meetings/:id/finish",
+    async (request, reply) => {
+      const meeting = await db.meeting.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, deletedAt: true },
+      });
+      if (!meeting || meeting.deletedAt) return reply.code(404).send({ error: "meeting not found" });
+
+      let audio: Buffer | undefined;
+      let filename: string | undefined;
+      let contentType = "audio/ogg";
+      let tooLarge = false;
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === "file" && part.fieldname === "audio") {
+            filename = part.filename;
+            if (part.mimetype) contentType = part.mimetype;
+            audio = await part.toBuffer();
+            if (part.file.truncated) tooLarge = true;
+          }
+        }
+      } catch {
+        return reply.code(400).send({ error: "could not read the upload" });
+      }
+      if (tooLarge) return reply.code(413).send({ error: "file too large" });
+      if (!audio || audio.byteLength === 0) {
+        return reply.code(400).send({ error: "missing 'audio' file part" });
+      }
+
+      const ext = filename?.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase() ?? ".ogg";
+      const audioKey = `${meeting.id}${ext}`;
+      await ctx.storage.put(audioKey, audio, contentType);
+      await db.meeting.update({ where: { id: meeting.id }, data: { audioKey } });
+
+      queue.enqueue(meeting.id, "finish");
+      return reply.code(201).send({ id: meeting.id });
+    },
+  );
 
   // List: newest first, paginated and filterable. Returns the page plus the total, so
   // the panel can render page controls without a second round trip.

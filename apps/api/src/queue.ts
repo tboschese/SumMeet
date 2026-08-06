@@ -7,7 +7,7 @@
  * extraction over a stored transcript — the audio is deleted as soon as the
  * transcript exists, so anything past that point must use this kind.
  */
-export type JobKind = "full" | "extract" | "segment";
+export type JobKind = "full" | "extract" | "segment" | "finish";
 
 export interface Job {
   meetingId: string;

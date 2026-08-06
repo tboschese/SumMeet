@@ -238,6 +238,70 @@ export async function runExtraction(
 }
 
 /**
+ * Finalize a streamed meeting at recording stop. If live chunks produced a transcript,
+ * diarize it over the full recording (cheap ffmpeg energy pass — no re-transcription) and
+ * finish; otherwise fall back to the full pipeline over the uploaded audio. Fail-soft: any
+ * error in the fast path falls back to the full pipeline, which still has the audio.
+ */
+export async function runFinish(
+  meetingId: string,
+  ctx: PipelineContext,
+  log?: (msg: string) => void,
+): Promise<void> {
+  const meeting = await db.meeting.findUnique({
+    where: { id: meetingId },
+    include: { transcript: true },
+  });
+  if (!meeting) throw new Error(`meeting ${meetingId} not found`);
+
+  const live = meeting.transcript ? parseSegments(meeting.transcript.segments) : [];
+  // No usable live transcript → transcribe the full recording, exactly as a plain upload.
+  if (live.length === 0) return runPipeline(meetingId, ctx, log);
+
+  try {
+    // Diarize the live transcript over the full recording — who spoke, from the stereo
+    // channels. No model, no re-transcription: this is the whole speedup.
+    let segments = live;
+    if (meeting.audioKey && isSummeetStereoLayout(meeting.channelLayout)) {
+      const buf = await ctx.storage.get(meeting.audioKey);
+      const tmpDir = await mkdtemp(path.join(tmpdir(), "summeet-finish-"));
+      try {
+        const p = path.join(tmpDir, meeting.audioKey);
+        await writeFile(p, buf);
+        const attributed = await assignSpeakers(p, live);
+        segments = attributed.segments;
+        log?.(`finish ${meetingId}: diarized live transcript (echo gain ${attributed.echoGain.toFixed(2)})`);
+      } finally {
+        await rm(tmpDir, { recursive: true, force: true });
+      }
+    }
+
+    const durationSec =
+      segments.length > 0 ? Math.round(segments[segments.length - 1]!.end) : null;
+    await db.transcript.update({
+      where: { meetingId },
+      data: { segments: stringifySegments(segments) },
+    });
+
+    const settings = await getSettings();
+    await db.meeting.update({
+      where: { id: meetingId },
+      data: { status: settings.autoExtract ? "EXTRACTING" : "TRANSCRIBED", durationSec, error: null },
+    });
+    log?.(`finish ${meetingId}: transcript ready from ${live.length} live segments`);
+
+    if (settings.autoExtract) {
+      await extractAndPersist(meetingId, ctx, log); // throws → caught below → full fallback
+    }
+    // The transcript is the artifact; drop the recording (kept only as the fallback).
+    await discardAudio(ctx, meetingId, meeting.audioKey);
+  } catch (err) {
+    log?.(`finish ${meetingId}: fast finalize failed (${String(err)}); full pipeline`);
+    await runPipeline(meetingId, ctx, log); // audio is still there unless we got past discard
+  }
+}
+
+/**
  * The worker pipeline (SPEC §7.3), fail-soft (CLAUDE.md hard rule #7): read
  * audio → transcribe → extract → persist, driving status
  * TRANSCRIBING → EXTRACTING → COMPLETED — or stopping at TRANSCRIBED when

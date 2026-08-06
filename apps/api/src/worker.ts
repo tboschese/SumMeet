@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { PipelineContext } from "./context.js";
 import { db } from "./db.js";
-import { runExtraction, runPipeline, runSegment } from "./pipeline.js";
+import { runExtraction, runFinish, runPipeline, runSegment } from "./pipeline.js";
 import { Queue } from "./queue.js";
 
 // Statuses that mean "work is not finished" — swept and re-enqueued on startup
@@ -19,6 +19,7 @@ export async function startWorker(
   const queue = new Queue(
     (job) => {
       if (job.kind === "extract") return runExtraction(job.meetingId, ctx, (m) => log.info(m));
+      if (job.kind === "finish") return runFinish(job.meetingId, ctx, (m) => log.info(m));
       if (job.kind === "segment" && job.segment)
         return runSegment(job.meetingId, job.segment.path, job.segment.offsetSec, ctx, (m) =>
           log.info(m),
