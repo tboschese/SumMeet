@@ -8,6 +8,7 @@ import {
   formatTranscriptForPrompt,
   isSummeetStereoLayout,
   parseSegments,
+  probeDurationSec,
   stringifyInsights,
   stringifySegments,
   transcribeFile,
@@ -258,22 +259,39 @@ export async function runFinish(
   // No usable live transcript → transcribe the full recording, exactly as a plain upload.
   if (live.length === 0) return runPipeline(meetingId, ctx, log);
 
+  let tmpDir: string | undefined;
   try {
+    // Write the full recording out once — used both to check coverage and to diarize.
+    let audioPath: string | undefined;
+    if (meeting.audioKey) {
+      const buf = await ctx.storage.get(meeting.audioKey);
+      tmpDir = await mkdtemp(path.join(tmpdir(), "summeet-finish-"));
+      audioPath = path.join(tmpDir, meeting.audioKey);
+      await writeFile(audioPath, buf);
+    }
+
+    // Safety: only trust the live transcript if it actually covers the recording. A recorder
+    // that dropped chunks leaves gaps; rather than ship a holey transcript, fall back to
+    // transcribing the whole file (current behaviour). 85% is slack for the tail/rounding.
+    if (audioPath) {
+      const liveEnd = live.length ? live[live.length - 1]!.end : 0;
+      const fullDuration = await probeDurationSec(audioPath).catch(() => 0);
+      if (fullDuration > 0 && liveEnd < fullDuration * 0.85) {
+        log?.(
+          `finish ${meetingId}: live covers ${liveEnd.toFixed(0)}/${fullDuration.toFixed(0)}s ` +
+            `(<85%); transcribing the full recording instead`,
+        );
+        return runPipeline(meetingId, ctx, log);
+      }
+    }
+
     // Diarize the live transcript over the full recording — who spoke, from the stereo
     // channels. No model, no re-transcription: this is the whole speedup.
     let segments = live;
-    if (meeting.audioKey && isSummeetStereoLayout(meeting.channelLayout)) {
-      const buf = await ctx.storage.get(meeting.audioKey);
-      const tmpDir = await mkdtemp(path.join(tmpdir(), "summeet-finish-"));
-      try {
-        const p = path.join(tmpDir, meeting.audioKey);
-        await writeFile(p, buf);
-        const attributed = await assignSpeakers(p, live);
-        segments = attributed.segments;
-        log?.(`finish ${meetingId}: diarized live transcript (echo gain ${attributed.echoGain.toFixed(2)})`);
-      } finally {
-        await rm(tmpDir, { recursive: true, force: true });
-      }
+    if (audioPath && isSummeetStereoLayout(meeting.channelLayout)) {
+      const attributed = await assignSpeakers(audioPath, live);
+      segments = attributed.segments;
+      log?.(`finish ${meetingId}: diarized live transcript (echo gain ${attributed.echoGain.toFixed(2)})`);
     }
 
     const durationSec =
@@ -298,6 +316,8 @@ export async function runFinish(
   } catch (err) {
     log?.(`finish ${meetingId}: fast finalize failed (${String(err)}); full pipeline`);
     await runPipeline(meetingId, ctx, log); // audio is still there unless we got past discard
+  } finally {
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
