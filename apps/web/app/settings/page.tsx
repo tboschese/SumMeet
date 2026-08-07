@@ -220,6 +220,21 @@ export default function SettingsPage() {
               </span>
             </label>
 
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-brand-light/60 p-3">
+              <input
+                type="checkbox"
+                checked={settings.liveTranscription}
+                onChange={(e) =>
+                  update({ ...settings, liveTranscription: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 accent-brand"
+              />
+              <span>
+                <span className="block text-sm font-medium text-ink">{t("settings.live.label")}</span>
+                <span className="mt-0.5 block text-xs text-ink-soft/70">{t("settings.live.hint")}</span>
+              </span>
+            </label>
+
             <Field
               label={t("settings.engine.extraction")}
               hint={t("settings.engine.extractionHint")}

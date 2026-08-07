@@ -115,11 +115,17 @@ export default function WidgetPage() {
   const start = useCallback(async () => {
     setSuggest(false);
     try {
-      // Echo cancellation is a user setting (default on); fall back to on if unreadable.
-      const aec = await getSettings()
-        .then((s) => s.echoCancellation)
-        .catch(() => true);
-      await nativeRecorder.start(`Recording ${new Date().toLocaleString()}`, undefined, aec);
+      // Echo cancellation and live transcription are user settings (both default on);
+      // fall back to on if the settings can't be read.
+      const { echoCancellation: aec, liveTranscription: live } = await getSettings().catch(
+        () => ({ echoCancellation: true, liveTranscription: true }),
+      );
+      await nativeRecorder.start(
+        `Recording ${new Date().toLocaleString()}`,
+        undefined,
+        aec,
+        live,
+      );
       setMode("recording");
     } catch {
       setMode("idle");

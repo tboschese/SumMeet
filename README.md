@@ -202,6 +202,29 @@ tab capture and uploads.
 > The Chrome extension was removed once native capture made it redundant. It's
 > still in the git history if you need it.
 
+### Transcribing while you record (roadmap A18)
+
+With **Transcribe while recording** on (Settings, default on), the recorder ships
+short chunks of the meeting as it goes and each one is transcribed immediately, so
+the transcript is nearly done the moment you stop — instead of a single long pass at
+the end. That pass is what makes the local Whisper slow on a real meeting, so this is
+where the setting pays off; with cloud Groq on a short meeting it's a wash.
+
+The whole recording is **still uploaded at stop and remains the authority**: the
+server uses the live transcript only if it covers at least 85% of the recording, and
+otherwise transcribes the file whole. So a dropped chunk costs time, never content.
+Recordings shorter than one chunk (45 s) skip streaming and upload normally.
+
+You can exercise everything except the OS capture (which needs a display and a signed
+bundle) from a terminal — it streams a real audio file through the same code path:
+
+```bash
+pnpm --filter @summeet/api start &        # or the desktop app's own server
+"apps/macos/recorder/build/SumMeet Recorder.app/Contents/MacOS/recorder" \
+  --streamtest sample.aiff --api http://localhost:8080 --title "Stream test"
+# add --chunk-min 8 --chunk-max 12 to force several chunks out of a short sample
+```
+
 ## Layout
 
 Monorepo (pnpm workspaces):

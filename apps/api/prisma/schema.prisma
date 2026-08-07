@@ -24,6 +24,7 @@ model Settings {
   autoExtract           Boolean  @default(true) // false = stop at TRANSCRIBED, extract on demand
   summarySections       String   @default("") // JSON array of section keys, in order; "" = defaults
   echoCancellation      Boolean  @default(true) // mic voice-processing so speakers don't echo into it
+  liveTranscription     Boolean  @default(true) // transcribe short chunks while recording, not all at once at the end
   // Cloud API key set from the UI (desktop/mobile have no .env). Server-side
   // only — never returned by the API, never sent to a browser. Falls back to env.
   groqApiKey            String   @default("")

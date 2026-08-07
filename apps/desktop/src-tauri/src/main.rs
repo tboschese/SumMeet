@@ -427,7 +427,12 @@ fn parse_level(line: &str) -> Option<Levels> {
 
 /// Spawn the recorder; it records until SIGINT, then joins the channels and
 /// uploads. Separate from the Tauri command so it can be tested without a window.
-fn spawn_recorder(title: &str, mic_device_id: Option<&str>, aec: bool) -> Result<Session, String> {
+fn spawn_recorder(
+    title: &str,
+    mic_device_id: Option<&str>,
+    aec: bool,
+    live: bool,
+) -> Result<Session, String> {
     let bin =
         recorder_path().ok_or("recorder binary not found — run apps/macos/recorder/build.sh")?;
     // .ogg, not .wav: ffmpeg picks the container from the extension, and the recorder
@@ -451,6 +456,12 @@ fn spawn_recorder(title: &str, mic_device_id: Option<&str>, aec: bool) -> Result
     // enable it, so this can never cost us the mic.
     if aec {
         command.arg("--aec");
+    }
+    // Transcribe while recording: the recorder ships short chunks to the API during the
+    // meeting, so the transcript is mostly done at stop instead of starting there. It
+    // still uploads the whole recording at the end, which stays the fallback.
+    if live {
+        command.arg("--live");
     }
     let mut child = command
         .env("PATH", augmented_path())
@@ -538,12 +549,18 @@ fn start_recording(
     title: String,
     mic_device_id: Option<String>,
     aec: Option<bool>,
+    live: Option<bool>,
 ) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     if guard.is_some() {
         return Err("already recording".into());
     }
-    *guard = Some(spawn_recorder(&title, mic_device_id.as_deref(), aec.unwrap_or(false))?);
+    *guard = Some(spawn_recorder(
+        &title,
+        mic_device_id.as_deref(),
+        aec.unwrap_or(false),
+        live.unwrap_or(false),
+    )?);
     Ok(())
 }
 

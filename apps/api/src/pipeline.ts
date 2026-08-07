@@ -11,6 +11,7 @@ import {
   probeDurationSec,
   stringifyInsights,
   stringifySegments,
+  toLanguageCode,
   transcribeFile,
   enhanceNotes,
 } from "@summeet/core";
@@ -66,6 +67,7 @@ export async function runSegment(
   meetingId: string,
   segmentPath: string,
   offsetSec: number,
+  boundaryEndSec: number,
   ctx: PipelineContext,
   log?: (msg: string) => void,
 ): Promise<void> {
@@ -75,9 +77,29 @@ export async function runSegment(
       include: { transcript: true },
     });
     if (!meeting || meeting.deletedAt) return; // cancelled or gone while queued
+    // Only a meeting still being recorded takes live chunks. A chunk that somehow arrives
+    // after `finish` has run would otherwise splice text into a transcript the user has
+    // already read — and whose insights were drawn from it.
+    if (meeting.status !== "TRANSCRIBING") {
+      log?.(`segment ${meetingId}: ignored — meeting is ${meeting.status}, not recording`);
+      return;
+    }
 
     const settings = await getSettings();
     const { transcription } = ctx.resolve(settings, await getSecrets());
+
+    // Equalise the two speakers before the downmix, exactly as the full pipeline does —
+    // otherwise a quiet voice is averaged away and Whisper transcribes only the loud side.
+    // Estimated per chunk, which also tracks a speaker who gets quieter as the meeting goes on.
+    const balance = isSummeetStereoLayout(meeting.channelLayout)
+      ? ((await estimateChannelBalance(segmentPath)) ?? undefined)
+      : undefined;
+
+    // Whisper decides the language per call, and a chunk is short: in a test run one chunk
+    // of an English meeting came back in Portuguese. So the first chunk that lands on a
+    // language we recognise pins it for the rest of the recording. An explicit setting
+    // still wins over both.
+    const language = transcriptionHint(settings) ?? toLanguageCode(meeting.language);
 
     const abort = new AbortController();
     inflight.set(meetingId, abort);
@@ -85,24 +107,41 @@ export async function runSegment(
     let result: Awaited<ReturnType<typeof transcribeFile>>;
     try {
       result = await transcribeFile(segmentPath, transcription, {
-        language: transcriptionHint(settings),
+        language,
         prompt: glossary(settings),
+        balance,
         signal: abort.signal,
       });
     } finally {
       clearTimeout(watchdog);
       inflight.delete(meetingId);
     }
+    if (!language) {
+      const detected = toLanguageCode(result.language);
+      if (detected) {
+        await db.meeting.update({ where: { id: meetingId }, data: { language: detected } });
+        log?.(`segment ${meetingId}: language pinned to ${detected} for the rest of the recording`);
+      }
+    }
 
     // Shift the chunk's segments onto the meeting timeline and merge into the running
-    // transcript, ordered by start. Chunks arrive in order and don't overlap, so a plain
-    // concat + sort is enough.
-    const shifted = result.segments.map((s) => ({
-      ...s,
-      start: s.start + offsetSec,
-      end: s.end + offsetSec,
-    }));
+    // transcript, ordered by start.
+    //
+    // Chunks overlap on purpose: each one's audio runs a few seconds past the point where
+    // the next takes over, so a phrase straddling a cut is transcribed whole instead of
+    // being sliced in half (measured: without this, every cut swallowed a phrase). Two
+    // rules keep that overlap from showing up twice —
+    //   1. drop what starts past this chunk's boundary: the next chunk covers it from its
+    //      own start, with context (same rule as `stitchSegments` for oversized uploads);
+    //   2. drop what is entirely inside what we already have — the head of this chunk
+    //      re-transcribing the previous one's tail. Only *fully* covered segments go, so a
+    //      segment that reaches past the end is kept: a duplicated phrase is cheap, a
+    //      missing one is not.
     const existing = meeting.transcript ? parseSegments(meeting.transcript.segments) : [];
+    const coveredTo = existing.reduce((max, s) => Math.max(max, s.end), 0);
+    const shifted = result.segments
+      .map((s) => ({ ...s, start: s.start + offsetSec, end: s.end + offsetSec }))
+      .filter((s) => s.start < boundaryEndSec && s.end > coveredTo);
     const merged = [...existing, ...shifted].sort((a, b) => a.start - b.start);
     const fullText = merged.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
 
@@ -111,9 +150,12 @@ export async function runSegment(
       create: { meetingId, fullText, segments: stringifySegments(merged), provider: transcription.id },
       update: { fullText, segments: stringifySegments(merged) },
     });
-    log?.(`segment ${meetingId} @${offsetSec}s: +${shifted.length} (${merged.length} total)`);
+    log?.(
+      `segment ${meetingId} @${offsetSec.toFixed(0)}s: +${shifted.length} kept of ` +
+        `${result.segments.length} (${merged.length} total)`,
+    );
   } catch (err) {
-    log?.(`segment ${meetingId} @${offsetSec}s: skipped — ${String(err)}`);
+    log?.(`segment ${meetingId} @${offsetSec.toFixed(0)}s: skipped — ${String(err)}`);
   } finally {
     await rm(segmentPath, { force: true }).catch(() => {});
   }

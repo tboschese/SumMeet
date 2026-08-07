@@ -71,13 +71,14 @@ export function RecordBar({ onCreated }: { onCreated: () => void }) {
   const startNative = useCallback(async () => {
     setError(null);
     try {
-      const aec = await getSettings()
-        .then((s) => s.echoCancellation)
-        .catch(() => true);
+      const { echoCancellation: aec, liveTranscription: live } = await getSettings().catch(
+        () => ({ echoCancellation: true, liveTranscription: true }),
+      );
       await nativeRecorder.start(
         `Recording ${new Date().toLocaleString()}`,
         micId || undefined,
         aec,
+        live,
       );
       setMode("recording");
       const startedAt = Date.now();

@@ -55,6 +55,13 @@ export const SettingsSchema = z.object({
    * enable it, so it never costs the mic.
    */
   echoCancellation: z.boolean(),
+  /**
+   * Transcribe the meeting in short chunks while it runs, instead of all at once at the
+   * end. The recorder still uploads the whole recording at stop, and the server only
+   * trusts the live transcript if it covers the recording — so this can save minutes
+   * (a long local-Whisper pass) without ever risking a holey transcript.
+   */
+  liveTranscription: z.boolean(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 

@@ -13,8 +13,10 @@ export interface Job {
   meetingId: string;
   kind: JobKind;
   /** Only for "segment": a chunk of a still-recording meeting to transcribe live and
-   * append to the running transcript, at this offset into the meeting. */
-  segment?: { path: string; offsetSec: number };
+   * append to the running transcript, at this offset into the meeting. The chunk's audio
+   * runs past `boundaryEndSec` (overlap, so the words straddling the cut are transcribed
+   * whole); anything starting past it belongs to the next chunk. */
+  segment?: { path: string; offsetSec: number; boundaryEndSec: number };
 }
 
 export class Queue {
@@ -29,7 +31,7 @@ export class Queue {
   enqueue(
     meetingId: string,
     kind: JobKind = "full",
-    segment?: { path: string; offsetSec: number },
+    segment?: { path: string; offsetSec: number; boundaryEndSec: number },
   ): void {
     this.pending.push({ meetingId, kind, segment });
     void this.drain();

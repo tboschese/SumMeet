@@ -63,12 +63,15 @@ export interface Microphone {
 
 export const nativeRecorder = {
   /** `aec` enables echo cancellation (voice processing) — the mic won't re-capture the
-   * meeting audio on speakers. The recorder falls back to plain capture if it can't. */
-  start: (title: string, micDeviceId?: string, aec?: boolean) =>
+   * meeting audio on speakers. The recorder falls back to plain capture if it can't.
+   * `live` transcribes short chunks during the meeting instead of the whole recording at
+   * the end; the full recording is uploaded at stop either way. */
+  start: (title: string, micDeviceId?: string, aec?: boolean, live?: boolean) =>
     invoke<void>("start_recording", {
       title,
       micDeviceId: micDeviceId ?? null,
       aec: aec ?? null,
+      live: live ?? null,
     }),
   stop: () => invoke<string>("stop_recording"),
   isRecording: () => invoke<boolean>("is_recording"),

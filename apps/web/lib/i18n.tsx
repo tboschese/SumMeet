@@ -242,6 +242,9 @@ const en = {
   "settings.echo.label": "Cancel microphone echo",
   "settings.echo.hint":
     "When you record through speakers, the mic also picks up the meeting audio. Voice processing removes that echo so only your voice is on your channel. Applies to the default mic; falls back to plain capture if it can't be enabled — the mic is never lost.",
+  "settings.live.label": "Transcribe while recording",
+  "settings.live.hint":
+    "Sends short chunks during the meeting so most of the transcript is already done when you stop — instead of one long pass at the end, which is what makes local Whisper slow. The whole recording is still uploaded at stop and is used in full unless the live transcript covers it.",
 
   "settings.sections.title": "Summary sections",
   "settings.sections.hint":
@@ -553,6 +556,9 @@ const ptBR: Record<TKey, string> = {
   "settings.echo.label": "Cancelar eco do microfone",
   "settings.echo.hint":
     "Quando você grava pelos alto-falantes, o microfone também capta o áudio da reunião. O processamento de voz remove esse eco, deixando só a sua voz no seu canal. Vale para o microfone padrão; se não der para ativar, volta à captura simples — o microfone nunca é perdido.",
+  "settings.live.label": "Transcrever durante a gravação",
+  "settings.live.hint":
+    "Envia trechos curtos durante a reunião, então quase toda a transcrição já está pronta quando você para — em vez de uma única passada longa no fim, que é o que deixa o Whisper local lento. A gravação inteira continua sendo enviada ao parar, e é usada por completo se a transcrição ao vivo não cobrir tudo.",
 
   "settings.sections.title": "Seções do resumo",
   "settings.sections.hint":

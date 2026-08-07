@@ -39,6 +39,7 @@ export async function getSettings(): Promise<Settings> {
     autoExtract: r.autoExtract,
     summarySections: parseSections(r.summarySections),
     echoCancellation: r.echoCancellation,
+    liveTranscription: r.liveTranscription,
   };
 }
 

@@ -200,6 +200,10 @@ export function registerMeetingRoutes(
 
       let audio: Buffer | undefined;
       let offsetSec = 0;
+      // Where the next chunk takes over. The recorder records past this point so the words
+      // on the boundary are transcribed in context; the pipeline keeps only what starts
+      // before it. Absent = last chunk, nothing to hand over to.
+      let boundaryEndSec = Number.POSITIVE_INFINITY;
       let ext = ".opus";
       for await (const part of request.parts()) {
         if (part.type === "file" && part.fieldname === "audio") {
@@ -207,6 +211,9 @@ export function registerMeetingRoutes(
           audio = await part.toBuffer();
         } else if (part.type === "field" && part.fieldname === "offsetSec") {
           offsetSec = Number(part.value) || 0;
+        } else if (part.type === "field" && part.fieldname === "boundaryEndSec") {
+          const parsed = Number(part.value);
+          if (Number.isFinite(parsed)) boundaryEndSec = parsed;
         }
       }
       if (!audio || audio.byteLength === 0) {
@@ -217,7 +224,7 @@ export function registerMeetingRoutes(
       const dir = await mkdtemp(path.join(tmpdir(), "summeet-seg-"));
       const chunkPath = path.join(dir, `seg${ext}`);
       await writeFile(chunkPath, audio);
-      queue.enqueue(meeting.id, "segment", { path: chunkPath, offsetSec });
+      queue.enqueue(meeting.id, "segment", { path: chunkPath, offsetSec, boundaryEndSec });
       return { ok: true };
     },
   );
